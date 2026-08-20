@@ -26,3 +26,7 @@ erl_crash.dump
 music_platform_api-*.tar
 
 .env
+
+directory.py
+
+project_export.txt

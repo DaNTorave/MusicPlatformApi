@@ -53,7 +53,10 @@ defmodule MusicPlatformApi.MixProject do
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:phoenix_live_dashboard, "~> 0.7"},
-      {:bandit, "~> 1.5"}
+      {:bandit, "~> 1.5"},
+      {:pbkdf2_elixir, "~> 2.2"},
+      # {:bcrypt_elixir, "~> 3.0"},
+      {:joken, "~> 2.6"}
     ]
   end
 

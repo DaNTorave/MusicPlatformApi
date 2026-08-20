@@ -7,6 +7,13 @@ defmodule MusicPlatformApiWeb.Router do
 
   scope "/api", MusicPlatformApiWeb do
     pipe_through :api
+
+    post "/register", AuthController, :register
+    post "/login", AuthController, :login
+    post "/logout", AuthController, :logout
+    get "/profile", AuthController, :get_profile
+    put "/change-password", AuthController, :change_password
+    post "/reset-password", AuthController, :reset_password
   end
 
   # Enable LiveDashboard and Swoosh mailbox preview in development
