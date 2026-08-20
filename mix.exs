@@ -52,6 +52,7 @@ defmodule MusicPlatformApi.MixProject do
       {:dns_cluster, "~> 0.2.0"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
+      {:phoenix_live_dashboard, "~> 0.7"},
       {:bandit, "~> 1.5"}
     ]
   end
