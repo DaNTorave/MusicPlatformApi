@@ -1,19 +1,11 @@
-# This file is responsible for configuring your application
-# and its dependencies with the aid of the Config module.
-#
-# This configuration file is loaded before any dependency and
-# is restricted to this project.
-
-# General application configuration
 import Config
 
 config :music_platform_api,
   ecto_repos: [MusicPlatformApi.Repo],
   generators: [timestamp_type: :utc_datetime]
 
-# Configures the endpoint
 config :music_platform_api, MusicPlatformApiWeb.Endpoint,
-  url: [host: "localhost"],
+  url: [host: "localhost", port: 4000],
   adapter: Bandit.PhoenixAdapter,
   render_errors: [
     formats: [json: MusicPlatformApiWeb.ErrorJSON],
@@ -22,27 +14,16 @@ config :music_platform_api, MusicPlatformApiWeb.Endpoint,
   pubsub_server: MusicPlatformApi.PubSub,
   live_view: [signing_salt: "vO8eXeeY"]
 
-# Configures the mailer
-#
-# By default it uses the "Local" adapter which stores the emails
-# locally. You can see the emails in your browser, at "/dev/mailbox".
-#
-# For production it's recommended to configure a different adapter
-# at the `config/runtime.exs`.
 config :music_platform_api, MusicPlatformApi.Mailer, adapter: Swoosh.Adapters.Local
 
-# Configures Elixir's Logger
 config :logger, :default_formatter,
   format: "$time $metadata[$level] $message\n",
   metadata: [:request_id]
 
-# Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
 
 if config_env() in [:dev, :test] do
   import_config ".env.exs"
 end
 
-# Import environment specific config. This must remain at the bottom
-# of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"

@@ -55,8 +55,8 @@ defmodule MusicPlatformApi.MixProject do
       {:phoenix_live_dashboard, "~> 0.7"},
       {:bandit, "~> 1.5"},
       {:pbkdf2_elixir, "~> 2.2"},
-      # {:bcrypt_elixir, "~> 3.0"},
-      {:joken, "~> 2.6"}
+      {:joken, "~> 2.6"},
+      {:corsica, "~> 1.0"}
     ]
   end
 

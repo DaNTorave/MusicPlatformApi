@@ -1,56 +1,51 @@
+# lib/music_platform_api/auth.ex
+
 defmodule MusicPlatformApi.Auth do
-  alias MusicPlatformApi.{Repo, User}
-  alias Joken, as: Token
+  alias MusicPlatformApi.{Repo, User, Token}
   import Ecto.Query
 
-  @secret Application.compile_env(:music_platform_api, MusicPlatformApiWeb.Endpoint)[:secret_key_base]
-
-  # Регистрация пользователя
   def register_user(attrs) do
     %User{}
     |> User.registration_changeset(attrs)
     |> Repo.insert()
   end
 
-  # Аутентификация по логину/почте и паролю
   def authenticate(login_or_email, password) do
     user = get_user_by_login_or_email(login_or_email)
 
     case user do
-      nil -> {:error, "Invalid credentials"}
+      nil -> {:error, "Неверный логин или пароль"}
       user ->
         if User.valid_password?(user, password) do
           {:ok, user}
         else
-          {:error, "Invalid credentials"}
+          {:error, "Неверный логин или пароль"}
         end
     end
   end
 
-  # Генерация JWT токена
   def generate_token(user) do
     claims = %{
-      user_id: user.id,
-      login: user.login,
-      email: user.email,
-      role: user.role
+      "user_id" => user.id,
+      "login" => user.login,
+      "email" => user.email,
+      "role" => user.role,
+      "exp" => System.system_time(:second) + 86400
     }
 
-    case Token.generate_and_sign(claims, %{}, secret: @secret, algorithm: :HS256) do
+    case Token.generate_token(claims) do
       {:ok, token, _claims} -> token
       {:error, reason} -> {:error, reason}
     end
   end
 
-  # Проверка JWT токена
   def verify_token(token) do
-    case Token.verify(token, secret: @secret, algorithm: :HS256) do
+    case Token.verify_token(token) do
       {:ok, claims} -> {:ok, claims}
-      {:error, _} -> {:error, "Invalid token"}
+      {:error, reason} -> {:error, "Недействительный токен: #{reason}"}
     end
   end
 
-  # Получение пользователя по токену
   def get_user_from_token(token) do
     case verify_token(token) do
       {:ok, claims} ->
@@ -67,14 +62,12 @@ defmodule MusicPlatformApi.Auth do
     Repo.one(query)
   end
 
-  # Обновление пользователя
   def update_user(%User{} = user, attrs) do
     user
     |> User.update_changeset(attrs)
     |> Repo.update()
   end
 
-  # Обновление пароля
   def update_password(%User{} = user, new_password) do
     changeset =
       user
@@ -85,22 +78,18 @@ defmodule MusicPlatformApi.Auth do
     Repo.update(changeset)
   end
 
-  # Получение пользователя по ID
   def get_user(id) do
     Repo.get(User, id)
   end
 
-  # Получение пользователя по логину
   def get_user_by_login(login) do
     Repo.get_by(User, login: login)
   end
 
-  # Получение пользователя по почте
   def get_user_by_email(email) do
     Repo.get_by(User, email: email)
   end
 
-  # Проверка пароля без аутентификации
   def check_password(user, password) do
     User.valid_password?(user, password)
   end
