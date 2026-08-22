@@ -104,6 +104,108 @@ defmodule MusicPlatformApiWeb.AuthController do
     end
   end
 
+  def get_public_profile(conn, %{"id" => id}) do
+    case Auth.get_user(String.to_integer(id)) do
+      nil ->
+        return_error(conn, :not_found, "Пользователь не найден")
+
+      user ->
+        with ["Bearer " <> token] <- get_req_header(conn, "authorization"),
+            {:ok, claims} <- Auth.verify_token(token),
+            current_user_id <- claims["user_id"] do
+
+          if user.id == current_user_id do
+            conn
+            |> put_status(:ok)
+            |> json(%{
+              success: true,
+              profile: %{
+                id: user.id,
+                login: user.login,
+                email: user.email,
+                nickname: user.nickname,
+                role: user.role,
+                is_premium: user.is_premium,
+                avatar: user.avatar,
+                inserted_at: user.inserted_at,
+                updated_at: user.updated_at
+              }
+            })
+          else
+            conn
+            |> put_status(:ok)
+            |> json(%{
+              success: true,
+              profile: %{
+                id: user.id,
+                login: user.login,
+                nickname: user.nickname,
+                avatar: user.avatar,
+                role: user.role,
+                is_premium: user.is_premium
+              }
+            })
+          end
+        else
+          _ ->
+            conn
+            |> put_status(:ok)
+            |> json(%{
+              success: true,
+              profile: %{
+                id: user.id,
+                login: user.login,
+                nickname: user.nickname,
+                avatar: user.avatar,
+                role: user.role,
+                is_premium: user.is_premium
+              }
+            })
+        end
+    end
+  end
+
+  def update_nickname(conn, %{"nickname" => new_nickname}) do
+    with ["Bearer " <> token] <- get_req_header(conn, "authorization"),
+         {:ok, claims} <- Auth.verify_token(token),
+         user when not is_nil(user) <- Auth.get_user(claims["user_id"]) do
+
+      case Auth.update_nickname(user, new_nickname) do
+        {:ok, updated_user} ->
+          conn
+          |> put_status(:ok)
+          |> json(%{
+            success: true,
+            message: "Ник успешно обновлен",
+            user: %{
+              id: updated_user.id,
+              login: updated_user.login,
+              email: updated_user.email,
+              nickname: updated_user.nickname,
+              role: updated_user.role
+            }
+          })
+
+        {:error, changeset} when is_struct(changeset, Ecto.Changeset) ->
+          conn
+          |> put_status(:bad_request)
+          |> json(%{success: false, errors: format_errors(changeset)})
+
+        {:error, message} when is_binary(message) ->
+          return_error(conn, :bad_request, message)
+      end
+    else
+      [] -> return_error(conn, :unauthorized, "Отсутствует токен авторизации")
+      {:error, _} -> return_error(conn, :unauthorized, "Недействительный токен")
+      nil -> return_error(conn, :not_found, "Пользователь не найден")
+      _ -> return_error(conn, :unauthorized, "Недействительный или отсутствующий токен")
+    end
+  end
+
+  def update_nickname(conn, _params) do
+    return_error(conn, :bad_request, "Требуется ник")
+  end
+
   def change_password(conn, %{"current_password" => current, "new_password" => new}) do
     with ["Bearer " <> token] <- get_req_header(conn, "authorization"),
          {:ok, claims} <- Auth.verify_token(token),
@@ -114,7 +216,7 @@ defmodule MusicPlatformApiWeb.AuthController do
           {:ok, _} ->
             conn
             |> put_status(:ok)
-            |> json(%{success: true, message: "Пароль обновлен успешно"})
+            |> json(%{success: true, message: "Пароль успешно обновлен"})
 
           {:error, changeset} ->
             conn

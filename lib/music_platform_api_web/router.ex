@@ -11,9 +11,11 @@ defmodule MusicPlatformApiWeb.Router do
     post "/register", AuthController, :register
     post "/login", AuthController, :login
     post "/logout", AuthController, :logout
+    get "/profile/:id", AuthController, :get_public_profile
     get "/profile", AuthController, :get_profile
     put "/change-password", AuthController, :change_password
     post "/reset-password", AuthController, :reset_password
+    put "/update-nickname", AuthController, :update_nickname
   end
 
   # Enable LiveDashboard and Swoosh mailbox preview in development

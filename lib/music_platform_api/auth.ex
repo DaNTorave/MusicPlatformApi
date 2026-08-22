@@ -5,9 +5,29 @@ defmodule MusicPlatformApi.Auth do
   import Ecto.Query
 
   def register_user(attrs) do
+    attrs =
+      case Map.get(attrs, "nickname") do
+        nil ->
+          Map.put(attrs, "nickname", generate_unique_nickname())
+        "" ->
+          Map.put(attrs, "nickname", generate_unique_nickname())
+        _ ->
+          attrs
+      end
+
     %User{}
     |> User.registration_changeset(attrs)
     |> Repo.insert()
+  end
+
+  defp generate_unique_nickname do
+    random_suffix = :rand.uniform(999_999) |> Integer.to_string() |> String.pad_leading(6, "0")
+    base_nickname = "user#{random_suffix}"
+
+    case get_user_by_nickname(base_nickname) do
+      nil -> base_nickname
+      _ -> generate_unique_nickname()
+    end
   end
 
   def authenticate(login_or_email, password) do
@@ -90,7 +110,31 @@ defmodule MusicPlatformApi.Auth do
     Repo.get_by(User, email: email)
   end
 
+  def get_user_by_nickname(nickname) do
+    Repo.get_by(User, nickname: nickname)
+  end
+
   def check_password(user, password) do
     User.valid_password?(user, password)
+  end
+
+  def update_nickname(user, new_nickname) do
+    new_nickname = String.trim(new_nickname)
+
+    if new_nickname == "" do
+      {:error, "Ник не может быть пустым"}
+    else
+      existing_user = get_user_by_nickname(new_nickname)
+
+      cond do
+        existing_user && existing_user.id != user.id ->
+          {:error, "Ник уже занят"}
+        true ->
+          user
+          |> Ecto.Changeset.cast(%{nickname: new_nickname}, [:nickname])
+          |> Ecto.Changeset.validate_length(:nickname, min: 1, max: 50)
+          |> Repo.update()
+      end
+    end
   end
 end

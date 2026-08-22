@@ -1,87 +1,65 @@
 defmodule MusicPlatformApi.User do
   use Ecto.Schema
   import Ecto.Changeset
-  import Pbkdf2
 
-  @derive {Jason.Encoder, only: [:id, :login, :email, :nickname, :role, :inserted_at, :updated_at]}
+  @primary_key {:id, :id, []}
+  @derive {Phoenix.Param, key: :id}
 
-  @primary_key {:id, :binary_id, autogenerate: true}
-  @foreign_key_type :binary_id
+  @required_fields [:login, :email, :password_hash]
+  @optional_fields [:nickname, :avatar, :is_premium]
 
   schema "users" do
     field :login, :string
     field :email, :string
-    field :nickname, :string
-    field :role, :string, default: "member"
     field :password_hash, :string
-    field :password, :string, virtual: true
+    field :nickname, :string
+    field :avatar, :string
+    field :is_premium, :boolean, default: false
+    field :role, :string, default: "member"
 
     timestamps(type: :utc_datetime_usec)
   end
 
   def registration_changeset(user, attrs) do
     user
-    |> cast(attrs, [:login, :email, :nickname, :password])
-    |> validate_required([:login, :email, :nickname, :password],
-         message: "не может быть пустым")
-    |> validate_length(:login, min: 3, max: 50,
-         message: "должен содержать от 3 до 50 символов")
-    |> validate_length(:nickname, min: 2, max: 50,
-         message: "должен содержать от 2 до 50 символов")
-    |> validate_email()
-    |> validate_password()
-    |> validate_role()
-    |> unique_constraint(:login, name: :users_login_index,
-         message: "уже занят")
-    |> unique_constraint(:email, name: :users_email_index,
-         message: "уже занят")
+    |> cast(attrs, @required_fields ++ @optional_fields)
+    |> validate_required(@required_fields)
+    |> validate_length(:login, min: 3, max: 50)
+    |> validate_length(:email, max: 100)
+    |> validate_format(:email, ~r/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/,
+        message: "неверный формат email")
+    |> validate_length(:nickname, min: 1, max: 50)
+    |> validate_length(:password_hash, min: 6, max: 100)
+    |> unique_constraint(:login, name: :users_login_index, message: "уже занят")
+    |> unique_constraint(:email, name: :users_email_index, message: "уже занят")
+    |> validate_inclusion(:role, ["member", "admin", "moderator"],
+        message: "роль должна быть 'member', 'admin' или 'moderator'")
+    |> validate_inclusion(:is_premium, [true, false],
+        message: "должно быть true или false")
     |> put_password_hash()
   end
 
   def update_changeset(user, attrs) do
     user
-    |> cast(attrs, [:login, :email, :nickname])
-    |> validate_required([:login, :email, :nickname],
-         message: "не может быть пустым")
-    |> validate_length(:login, min: 3, max: 50,
-         message: "должен содержать от 3 до 50 символов")
-    |> validate_length(:nickname, min: 2, max: 50,
-         message: "должен содержать от 2 до 50 символов")
-    |> validate_email()
-    |> unique_constraint(:login, name: :users_login_index,
-         message: "уже занят")
-    |> unique_constraint(:email, name: :users_email_index,
-         message: "уже занят")
+    |> cast(attrs, [:login, :email, :nickname, :avatar, :is_premium])
+    |> validate_length(:login, min: 3, max: 50)
+    |> validate_length(:email, max: 100)
+    |> validate_format(:email, ~r/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/,
+        message: "неверный формат email")
+    |> validate_length(:nickname, min: 1, max: 50)
+    |> unique_constraint(:login, name: :users_login_index, message: "уже занят")
+    |> unique_constraint(:email, name: :users_email_index, message: "уже занят")
+    |> validate_inclusion(:is_premium, [true, false],
+        message: "должно быть true или false")
   end
 
-  defp validate_email(changeset) do
-    changeset
-    |> validate_required([:email], message: "не может быть пустым")
-    |> validate_format(:email, ~r/^[^\s@]+@[^\s@]+\.[^\s@]+$/,
-         message: "неверный формат email")
+  def put_password_hash(%Ecto.Changeset{valid?: true, changes: %{password: password}} = changeset) do
+    change(changeset, password_hash: Pbkdf2.hash_pwd_salt(password))
   end
 
-  defp validate_password(changeset) do
-    changeset
-    |> validate_required([:password], message: "не может быть пустым")
-    |> validate_length(:password, min: 6, max: 100,
-         message: "должен содержать от 6 до 100 символов")
-  end
+  def put_password_hash(changeset), do: changeset
 
-  defp validate_role(changeset) do
-    changeset
-    |> validate_inclusion(:role, ["member"],
-         message: "роль должна быть 'member'")
-  end
-
-  def put_password_hash(changeset) do
-    case get_change(changeset, :password) do
-      nil -> changeset
-      password -> put_change(changeset, :password_hash, hash_pwd_salt(password))
-    end
-  end
-
-  def valid_password?(%{password_hash: hash}, password) do
-    verify_pass(password, hash)
+  def valid_password?(user, password) do
+    Pbkdf2.verify_pass(password, user.password_hash)
   end
 end
