@@ -5,8 +5,8 @@ defmodule MusicPlatformApi.User do
   @primary_key {:id, :id, []}
   @derive {Phoenix.Param, key: :id}
 
-  @required_fields [:login, :email, :password_hash]
-  @optional_fields [:nickname, :avatar, :is_premium]
+  @registration_fields [:login, :email, :password, :nickname, :avatar, :is_premium, :role]
+  @required_fields [:login, :email, :password]
 
   schema "users" do
     field :login, :string
@@ -16,26 +16,27 @@ defmodule MusicPlatformApi.User do
     field :avatar, :string
     field :is_premium, :boolean, default: false
     field :role, :string, default: "member"
+    field :password, :string, virtual: true
 
     timestamps(type: :utc_datetime_usec)
   end
 
   def registration_changeset(user, attrs) do
     user
-    |> cast(attrs, @required_fields ++ @optional_fields)
+    |> cast(attrs, @registration_fields)
     |> validate_required(@required_fields)
     |> validate_length(:login, min: 3, max: 50)
     |> validate_length(:email, max: 100)
     |> validate_format(:email, ~r/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/,
         message: "неверный формат email")
-    |> validate_length(:nickname, min: 1, max: 50)
-    |> validate_length(:password_hash, min: 6, max: 100)
-    |> unique_constraint(:login, name: :users_login_index, message: "уже занят")
-    |> unique_constraint(:email, name: :users_email_index, message: "уже занят")
+    |> validate_length(:nickname, max: 50)
+    |> validate_length(:password, min: 6, max: 100)
     |> validate_inclusion(:role, ["member", "admin", "moderator"],
         message: "роль должна быть 'member', 'admin' или 'moderator'")
     |> validate_inclusion(:is_premium, [true, false],
         message: "должно быть true или false")
+    |> unique_constraint(:login, name: :users_login_index, message: "уже занят")
+    |> unique_constraint(:email, name: :users_email_index, message: "уже занят")
     |> put_password_hash()
   end
 

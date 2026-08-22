@@ -1,5 +1,3 @@
-# lib/music_platform_api_web/controllers/auth_controller.ex
-
 defmodule MusicPlatformApiWeb.AuthController do
   use MusicPlatformApiWeb, :controller
   alias MusicPlatformApi.{Auth, PasswordUtils}
@@ -19,6 +17,8 @@ defmodule MusicPlatformApiWeb.AuthController do
             email: user.email,
             nickname: user.nickname,
             role: user.role,
+            is_premium: user.is_premium,
+            avatar: user.avatar,
             inserted_at: user.inserted_at,
             updated_at: user.updated_at
           }
@@ -47,6 +47,8 @@ defmodule MusicPlatformApiWeb.AuthController do
                 email: user.email,
                 nickname: user.nickname,
                 role: user.role,
+                is_premium: user.is_premium,
+                avatar: user.avatar,
                 inserted_at: user.inserted_at,
                 updated_at: user.updated_at
               },
@@ -92,6 +94,8 @@ defmodule MusicPlatformApiWeb.AuthController do
           email: user.email,
           nickname: user.nickname,
           role: user.role,
+          is_premium: user.is_premium,
+          avatar: user.avatar,
           inserted_at: user.inserted_at,
           updated_at: user.updated_at
         }
@@ -110,43 +114,60 @@ defmodule MusicPlatformApiWeb.AuthController do
         return_error(conn, :not_found, "Пользователь не найден")
 
       user ->
-        with ["Bearer " <> token] <- get_req_header(conn, "authorization"),
-            {:ok, claims} <- Auth.verify_token(token),
-            current_user_id <- claims["user_id"] do
-
-          if user.id == current_user_id do
-            conn
-            |> put_status(:ok)
-            |> json(%{
-              success: true,
-              profile: %{
-                id: user.id,
-                login: user.login,
-                email: user.email,
-                nickname: user.nickname,
-                role: user.role,
-                is_premium: user.is_premium,
-                avatar: user.avatar,
-                inserted_at: user.inserted_at,
-                updated_at: user.updated_at
-              }
-            })
-          else
-            conn
-            |> put_status(:ok)
-            |> json(%{
-              success: true,
-              profile: %{
-                id: user.id,
-                login: user.login,
-                nickname: user.nickname,
-                avatar: user.avatar,
-                role: user.role,
-                is_premium: user.is_premium
-              }
-            })
-          end
-        else
+        case get_req_header(conn, "authorization") do
+          ["Bearer " <> token] ->
+            case Auth.verify_token(token) do
+              {:ok, claims} ->
+                current_user_id = claims["user_id"]
+                if user.id == current_user_id do
+                  conn
+                  |> put_status(:ok)
+                  |> json(%{
+                    success: true,
+                    profile: %{
+                      id: user.id,
+                      login: user.login,
+                      email: user.email,
+                      nickname: user.nickname,
+                      role: user.role,
+                      is_premium: user.is_premium,
+                      avatar: user.avatar,
+                      inserted_at: user.inserted_at,
+                      updated_at: user.updated_at
+                    }
+                  })
+                else
+                  conn
+                  |> put_status(:ok)
+                  |> json(%{
+                    success: true,
+                    profile: %{
+                      id: user.id,
+                      login: user.login,
+                      nickname: user.nickname,
+                      avatar: user.avatar,
+                      role: user.role,
+                      is_premium: user.is_premium,
+                      inserted_at: user.inserted_at
+                    }
+                  })
+                end
+              {:error, _} ->
+                conn
+                |> put_status(:ok)
+                |> json(%{
+                  success: true,
+                  profile: %{
+                    id: user.id,
+                    login: user.login,
+                    nickname: user.nickname,
+                    avatar: user.avatar,
+                    role: user.role,
+                    is_premium: user.is_premium,
+                    inserted_at: user.inserted_at
+                  }
+                })
+            end
           _ ->
             conn
             |> put_status(:ok)
@@ -158,7 +179,8 @@ defmodule MusicPlatformApiWeb.AuthController do
                 nickname: user.nickname,
                 avatar: user.avatar,
                 role: user.role,
-                is_premium: user.is_premium
+                is_premium: user.is_premium,
+                inserted_at: user.inserted_at
               }
             })
         end
@@ -182,7 +204,9 @@ defmodule MusicPlatformApiWeb.AuthController do
               login: updated_user.login,
               email: updated_user.email,
               nickname: updated_user.nickname,
-              role: updated_user.role
+              role: updated_user.role,
+              is_premium: updated_user.is_premium,
+              avatar: updated_user.avatar
             }
           })
 

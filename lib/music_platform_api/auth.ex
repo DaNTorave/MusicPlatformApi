@@ -1,33 +1,13 @@
-# lib/music_platform_api/auth.ex
-
 defmodule MusicPlatformApi.Auth do
   alias MusicPlatformApi.{Repo, User, Token}
   import Ecto.Query
 
   def register_user(attrs) do
-    attrs =
-      case Map.get(attrs, "nickname") do
-        nil ->
-          Map.put(attrs, "nickname", generate_unique_nickname())
-        "" ->
-          Map.put(attrs, "nickname", generate_unique_nickname())
-        _ ->
-          attrs
-      end
+    attrs = Map.put_new(attrs, "nickname", nil)
 
     %User{}
     |> User.registration_changeset(attrs)
     |> Repo.insert()
-  end
-
-  defp generate_unique_nickname do
-    random_suffix = :rand.uniform(999_999) |> Integer.to_string() |> String.pad_leading(6, "0")
-    base_nickname = "user#{random_suffix}"
-
-    case get_user_by_nickname(base_nickname) do
-      nil -> base_nickname
-      _ -> generate_unique_nickname()
-    end
   end
 
   def authenticate(login_or_email, password) do
@@ -49,7 +29,6 @@ defmodule MusicPlatformApi.Auth do
       "user_id" => user.id,
       "login" => user.login,
       "email" => user.email,
-      "role" => user.role,
       "exp" => System.system_time(:second) + 86400
     }
 
