@@ -2,12 +2,51 @@ defmodule MusicPlatformApi.Auth do
   alias MusicPlatformApi.{Repo, User, Token}
   import Ecto.Query
 
-  def register_user(attrs) do
-    attrs = Map.put_new(attrs, "nickname", nil)
+  defp generate_random_nickname do
+    adjectives = ["cool", "happy", "brave", "smart", "lucky", "wild", "free", "bold", "calm", "swift"]
+    nouns = ["panda", "tiger", "eagle", "wolf", "fox", "bear", "lion", "hawk", "dove", "whale"]
+    number = Enum.random(1000..9999)
 
-    %User{}
-    |> User.registration_changeset(attrs)
-    |> Repo.insert()
+    adjective = Enum.random(adjectives)
+    noun = Enum.random(nouns)
+
+    "#{adjective}_#{noun}_#{number}"
+  end
+
+  def register_user(attrs) do
+    nickname = Map.get(attrs, "nickname")
+    attrs =
+      if is_nil(nickname) || String.trim(nickname) == "" do
+        Map.put(attrs, "nickname", generate_random_nickname())
+      else
+        attrs
+      end
+
+    case %User{}
+         |> User.registration_changeset(attrs)
+         |> Repo.insert() do
+      {:ok, user} ->
+        loaded_user =
+          if is_nil(user.id) do
+            case Repo.get_by(User, login: user.login) do
+              nil -> user
+              found_user -> found_user
+            end
+          else
+            user
+          end
+
+        case MusicPlatformApi.Auth.generate_token(loaded_user) do
+          {:ok, token} ->
+            {:ok, loaded_user, token}
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+
+      {:error, changeset} ->
+        {:error, changeset}
+    end
   end
 
   def authenticate(login_or_email, password) do
@@ -25,22 +64,35 @@ defmodule MusicPlatformApi.Auth do
   end
 
   def generate_token(user) do
-    claims = %{
-      "user_id" => user.id,
-      "login" => user.login,
-      "email" => user.email,
-      "exp" => System.system_time(:second) + 86400
-    }
+    user_id = user.id
 
-    case Token.generate_token(claims) do
-      {:ok, token, _claims} -> token
-      {:error, reason} -> {:error, reason}
+    if is_nil(user_id) do
+      {:error, "User ID is nil"}
+    else
+      claims = %{
+        "user_id" => user_id,
+        "login" => user.login,
+        "email" => user.email,
+        "nickname" => user.nickname || "",
+        "exp" => System.system_time(:second) + 86400
+      }
+
+      IO.inspect(claims, label: "Claims being generated")
+
+      case Token.generate_token(claims) do
+        {:ok, token, _claims} ->
+          {:ok, token}
+        {:error, reason} ->
+          {:error, reason}
+      end
     end
   end
 
   def verify_token(token) do
     case Token.verify_token(token) do
-      {:ok, claims} -> {:ok, claims}
+      {:ok, claims} ->
+        IO.inspect(claims, label: "Verified claims")
+        {:ok, claims}
       {:error, reason} -> {:error, "Недействительный токен: #{reason}"}
     end
   end
@@ -48,7 +100,17 @@ defmodule MusicPlatformApi.Auth do
   def get_user_from_token(token) do
     case verify_token(token) do
       {:ok, claims} ->
-        Repo.get(User, claims["user_id"])
+        case claims do
+          %{"user_id" => user_id} when is_integer(user_id) ->
+            Repo.get(User, user_id)
+          %{"user_id" => user_id} when is_binary(user_id) ->
+            case Integer.parse(user_id) do
+              {int_id, ""} -> Repo.get(User, int_id)
+              _ -> nil
+            end
+          _ ->
+            nil
+        end
       {:error, _} -> nil
     end
   end
@@ -77,9 +139,18 @@ defmodule MusicPlatformApi.Auth do
     Repo.update(changeset)
   end
 
-  def get_user(id) do
+  def get_user(id) when is_integer(id) do
     Repo.get(User, id)
   end
+
+  def get_user(id) when is_binary(id) do
+    case Integer.parse(id) do
+      {int_id, ""} -> Repo.get(User, int_id)
+      _ -> nil
+    end
+  end
+
+  def get_user(_), do: nil
 
   def get_user_by_login(login) do
     Repo.get_by(User, login: login)

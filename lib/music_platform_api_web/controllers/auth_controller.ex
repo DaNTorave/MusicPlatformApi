@@ -5,12 +5,32 @@ defmodule MusicPlatformApiWeb.AuthController do
 
   def register(conn, params) do
     case Auth.register_user(params) do
-      {:ok, %User{} = user} ->
+      {:ok, %User{} = user, token} when is_binary(token) ->
         conn
         |> put_status(:created)
         |> json(%{
           success: true,
           message: "Регистрация прошла успешно",
+          user: %{
+            id: user.id,
+            login: user.login,
+            email: user.email,
+            nickname: user.nickname,
+            role: user.role,
+            is_premium: user.is_premium,
+            avatar: user.avatar,
+            inserted_at: user.inserted_at,
+            updated_at: user.updated_at
+          },
+          token: token
+        })
+
+      {:ok, %User{} = user} ->
+        conn
+        |> put_status(:created)
+        |> json(%{
+          success: true,
+          message: "Регистрация прошла успешно, но без токена",
           user: %{
             id: user.id,
             login: user.login,
@@ -35,7 +55,7 @@ defmodule MusicPlatformApiWeb.AuthController do
     case Auth.authenticate(login, password) do
       {:ok, user} ->
         case Auth.generate_token(user) do
-          token when is_binary(token) ->
+          {:ok, token} when is_binary(token) ->
             conn
             |> put_status(:ok)
             |> json(%{
@@ -80,79 +100,111 @@ defmodule MusicPlatformApiWeb.AuthController do
   end
 
   def get_profile(conn, _params) do
-    with ["Bearer " <> token] <- get_req_header(conn, "authorization"),
-         {:ok, claims} <- Auth.verify_token(token),
-         user when not is_nil(user) <- Auth.get_user(claims["user_id"]) do
+    case get_req_header(conn, "authorization") do
+      ["Bearer " <> token] ->
+        IO.inspect(token, label: "Token received")
 
-      conn
-      |> put_status(:ok)
-      |> json(%{
-        success: true,
-        user: %{
-          id: user.id,
-          login: user.login,
-          email: user.email,
-          nickname: user.nickname,
-          role: user.role,
-          is_premium: user.is_premium,
-          avatar: user.avatar,
-          inserted_at: user.inserted_at,
-          updated_at: user.updated_at
-        }
-      })
-    else
-      [] -> return_error(conn, :unauthorized, "Отсутствует токен авторизации")
-      {:error, _} -> return_error(conn, :unauthorized, "Недействительный токен")
-      nil -> return_error(conn, :not_found, "Пользователь не найден")
-      _ -> return_error(conn, :unauthorized, "Недействительный или отсутствующий токен")
+        case Auth.verify_token(token) do
+          {:ok, claims} ->
+            IO.inspect(claims, label: "Claims from token")
+
+            case claims do
+              %{"user_id" => user_id} when is_integer(user_id) ->
+                case Auth.get_user(user_id) do
+                  nil ->
+                    return_error(conn, :not_found, "Пользователь не найден")
+                  user ->
+                    conn
+                    |> put_status(:ok)
+                    |> json(%{
+                      success: true,
+                      user: %{
+                        id: user.id,
+                        login: user.login,
+                        email: user.email,
+                        nickname: user.nickname,
+                        role: user.role,
+                        is_premium: user.is_premium,
+                        avatar: user.avatar,
+                        inserted_at: user.inserted_at,
+                        updated_at: user.updated_at
+                      }
+                    })
+                end
+              _ ->
+                return_error(conn, :unauthorized, "Недействительный токен (нет user_id)")
+            end
+          {:error, reason} ->
+            IO.inspect(reason, label: "Token verification error")
+            return_error(conn, :unauthorized, "Недействительный токен: #{reason}")
+        end
+      _ ->
+        return_error(conn, :unauthorized, "Отсутствует токен авторизации")
     end
   end
 
   def get_public_profile(conn, %{"id" => id}) do
-    case Auth.get_user(String.to_integer(id)) do
-      nil ->
-        return_error(conn, :not_found, "Пользователь не найден")
-
-      user ->
-        case get_req_header(conn, "authorization") do
-          ["Bearer " <> token] ->
-            case Auth.verify_token(token) do
-              {:ok, claims} ->
-                current_user_id = claims["user_id"]
-                if user.id == current_user_id do
-                  conn
-                  |> put_status(:ok)
-                  |> json(%{
-                    success: true,
-                    profile: %{
-                      id: user.id,
-                      login: user.login,
-                      email: user.email,
-                      nickname: user.nickname,
-                      role: user.role,
-                      is_premium: user.is_premium,
-                      avatar: user.avatar,
-                      inserted_at: user.inserted_at,
-                      updated_at: user.updated_at
-                    }
-                  })
-                else
-                  conn
-                  |> put_status(:ok)
-                  |> json(%{
-                    success: true,
-                    profile: %{
-                      id: user.id,
-                      login: user.login,
-                      nickname: user.nickname,
-                      avatar: user.avatar,
-                      role: user.role,
-                      is_premium: user.is_premium,
-                      inserted_at: user.inserted_at
-                    }
-                  })
+    case Integer.parse(id) do
+      {user_id, ""} ->
+        case Auth.get_user(user_id) do
+          nil ->
+            return_error(conn, :not_found, "Пользователь не найден")
+          user ->
+            case get_req_header(conn, "authorization") do
+              ["Bearer " <> token] ->
+                case Auth.verify_token(token) do
+                  {:ok, claims} ->
+                    current_user_id = claims["user_id"]
+                    if is_integer(current_user_id) && user.id == current_user_id do
+                      conn
+                      |> put_status(:ok)
+                      |> json(%{
+                        success: true,
+                        profile: %{
+                          id: user.id,
+                          login: user.login,
+                          email: user.email,
+                          nickname: user.nickname,
+                          role: user.role,
+                          is_premium: user.is_premium,
+                          avatar: user.avatar,
+                          inserted_at: user.inserted_at,
+                          updated_at: user.updated_at
+                        }
+                      })
+                    else
+                      conn
+                      |> put_status(:ok)
+                      |> json(%{
+                        success: true,
+                        profile: %{
+                          id: user.id,
+                          login: user.login,
+                          nickname: user.nickname,
+                          avatar: user.avatar,
+                          role: user.role,
+                          is_premium: user.is_premium,
+                          inserted_at: user.inserted_at
+                        }
+                      })
+                    end
+                  {:error, _} ->
+                    conn
+                    |> put_status(:ok)
+                    |> json(%{
+                      success: true,
+                      profile: %{
+                        id: user.id,
+                        login: user.login,
+                        nickname: user.nickname,
+                        avatar: user.avatar,
+                        role: user.role,
+                        is_premium: user.is_premium,
+                        inserted_at: user.inserted_at
+                      }
+                    })
                 end
-              {:error, _} ->
+              _ ->
                 conn
                 |> put_status(:ok)
                 |> json(%{
@@ -168,61 +220,65 @@ defmodule MusicPlatformApiWeb.AuthController do
                   }
                 })
             end
-          _ ->
-            conn
-            |> put_status(:ok)
-            |> json(%{
-              success: true,
-              profile: %{
-                id: user.id,
-                login: user.login,
-                nickname: user.nickname,
-                avatar: user.avatar,
-                role: user.role,
-                is_premium: user.is_premium,
-                inserted_at: user.inserted_at
-              }
-            })
         end
+      _ ->
+        return_error(conn, :bad_request, "Неверный формат ID пользователя")
     end
   end
 
   def update_nickname(conn, %{"nickname" => new_nickname}) do
-    with ["Bearer " <> token] <- get_req_header(conn, "authorization"),
-         {:ok, claims} <- Auth.verify_token(token),
-         user when not is_nil(user) <- Auth.get_user(claims["user_id"]) do
+    case get_req_header(conn, "authorization") do
+      ["Bearer " <> token] ->
+        case Auth.verify_token(token) do
+          {:ok, claims} ->
+            case claims do
+              %{"user_id" => user_id} when is_integer(user_id) ->
+                case Auth.get_user(user_id) do
+                  nil ->
+                    return_error(conn, :not_found, "Пользователь не найден")
+                  user ->
+                    case Auth.update_nickname(user, new_nickname) do
+                      {:ok, updated_user} ->
+                        case Auth.generate_token(updated_user) do
+                          new_token when is_binary(new_token) ->
+                            conn
+                            |> put_status(:ok)
+                            |> json(%{
+                              success: true,
+                              message: "Ник успешно обновлен",
+                              user: %{
+                                id: updated_user.id,
+                                login: updated_user.login,
+                                email: updated_user.email,
+                                nickname: updated_user.nickname,
+                                role: updated_user.role,
+                                is_premium: updated_user.is_premium,
+                                avatar: updated_user.avatar
+                              },
+                              token: new_token
+                            })
 
-      case Auth.update_nickname(user, new_nickname) do
-        {:ok, updated_user} ->
-          conn
-          |> put_status(:ok)
-          |> json(%{
-            success: true,
-            message: "Ник успешно обновлен",
-            user: %{
-              id: updated_user.id,
-              login: updated_user.login,
-              email: updated_user.email,
-              nickname: updated_user.nickname,
-              role: updated_user.role,
-              is_premium: updated_user.is_premium,
-              avatar: updated_user.avatar
-            }
-          })
+                          {:error, reason} ->
+                            return_error(conn, :internal_server_error, "Ошибка обновления токена: #{reason}")
+                        end
 
-        {:error, changeset} when is_struct(changeset, Ecto.Changeset) ->
-          conn
-          |> put_status(:bad_request)
-          |> json(%{success: false, errors: format_errors(changeset)})
+                      {:error, changeset} when is_struct(changeset, Ecto.Changeset) ->
+                        conn
+                        |> put_status(:bad_request)
+                        |> json(%{success: false, errors: format_errors(changeset)})
 
-        {:error, message} when is_binary(message) ->
-          return_error(conn, :bad_request, message)
-      end
-    else
-      [] -> return_error(conn, :unauthorized, "Отсутствует токен авторизации")
-      {:error, _} -> return_error(conn, :unauthorized, "Недействительный токен")
-      nil -> return_error(conn, :not_found, "Пользователь не найден")
-      _ -> return_error(conn, :unauthorized, "Недействительный или отсутствующий токен")
+                      {:error, message} when is_binary(message) ->
+                        return_error(conn, :bad_request, message)
+                    end
+                end
+              _ ->
+                return_error(conn, :unauthorized, "Недействительный токен")
+            end
+          {:error, _} ->
+            return_error(conn, :unauthorized, "Недействительный токен")
+        end
+      _ ->
+        return_error(conn, :unauthorized, "Отсутствует токен авторизации")
     end
   end
 
@@ -231,30 +287,40 @@ defmodule MusicPlatformApiWeb.AuthController do
   end
 
   def change_password(conn, %{"current_password" => current, "new_password" => new}) do
-    with ["Bearer " <> token] <- get_req_header(conn, "authorization"),
-         {:ok, claims} <- Auth.verify_token(token),
-         user when not is_nil(user) <- Auth.get_user(claims["user_id"]) do
+    case get_req_header(conn, "authorization") do
+      ["Bearer " <> token] ->
+        case Auth.verify_token(token) do
+          {:ok, claims} ->
+            case claims do
+              %{"user_id" => user_id} when is_integer(user_id) ->
+                case Auth.get_user(user_id) do
+                  nil ->
+                    return_error(conn, :not_found, "Пользователь не найден")
+                  user ->
+                    if Auth.check_password(user, current) do
+                      case Auth.update_password(user, new) do
+                        {:ok, _} ->
+                          conn
+                          |> put_status(:ok)
+                          |> json(%{success: true, message: "Пароль успешно обновлен"})
 
-      if Auth.check_password(user, current) do
-        case Auth.update_password(user, new) do
-          {:ok, _} ->
-            conn
-            |> put_status(:ok)
-            |> json(%{success: true, message: "Пароль успешно обновлен"})
-
-          {:error, changeset} ->
-            conn
-            |> put_status(:bad_request)
-            |> json(%{success: false, errors: format_errors(changeset)})
+                        {:error, changeset} ->
+                          conn
+                          |> put_status(:bad_request)
+                          |> json(%{success: false, errors: format_errors(changeset)})
+                      end
+                    else
+                      return_error(conn, :unauthorized, "Текущий пароль неверен")
+                    end
+                end
+              _ ->
+                return_error(conn, :unauthorized, "Недействительный токен")
+            end
+          {:error, _} ->
+            return_error(conn, :unauthorized, "Недействительный токен")
         end
-      else
-        return_error(conn, :unauthorized, "Текущий пароль неверен")
-      end
-    else
-      [] -> return_error(conn, :unauthorized, "Отсутствует токен авторизации")
-      {:error, _} -> return_error(conn, :unauthorized, "Недействительный токен")
-      nil -> return_error(conn, :not_found, "Пользователь не найден")
-      _ -> return_error(conn, :unauthorized, "Недействительный или отсутствующий токен")
+      _ ->
+        return_error(conn, :unauthorized, "Отсутствует токен авторизации")
     end
   end
 
@@ -266,7 +332,6 @@ defmodule MusicPlatformApiWeb.AuthController do
     case Auth.get_user_by_email(email) do
       nil ->
         return_error(conn, :not_found, "Пользователь с таким email не найден")
-
       user ->
         new_password = PasswordUtils.generate_temporary_password()
 

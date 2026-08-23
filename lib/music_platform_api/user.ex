@@ -29,7 +29,7 @@ defmodule MusicPlatformApi.User do
     |> validate_length(:email, max: 100)
     |> validate_format(:email, ~r/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/,
         message: "неверный формат email")
-    |> validate_length(:nickname, max: 50)
+    |> validate_length(:nickname, min: 1, max: 50)
     |> validate_length(:password, min: 6, max: 100)
     |> validate_inclusion(:role, ["member", "admin", "moderator"],
         message: "роль должна быть 'member', 'admin' или 'moderator'")
