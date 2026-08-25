@@ -133,7 +133,6 @@ defmodule MusicPlatformApi.Auth do
     changeset =
       user
       |> Ecto.Changeset.cast(%{password: new_password}, [:password])
-      |> Ecto.Changeset.validate_length(:password, min: 6, max: 100)
       |> User.put_password_hash()
 
     Repo.update(changeset)
