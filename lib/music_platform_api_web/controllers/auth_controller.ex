@@ -332,59 +332,50 @@ defmodule MusicPlatformApiWeb.AuthController do
     end
   end
 
-  def update_nickname(conn, %{"nickname" => new_nickname}) do
-    case get_req_header(conn, "authorization") do
-      ["Bearer " <> token] ->
-        case Auth.verify_token(token) do
-          {:ok, claims} ->
-            case claims do
-              %{"user_id" => user_id} when is_integer(user_id) ->
-                case Auth.get_user(user_id) do
-                  nil ->
-                    return_error(conn, :not_found, "Пользователь не найден")
-                  user ->
-                    case Auth.update_nickname(user, new_nickname) do
-                      {:ok, updated_user} ->
-                        case Auth.generate_token(updated_user) do
-                          new_token when is_binary(new_token) ->
-                            conn
-                            |> put_status(:ok)
-                            |> json(%{
-                              success: true,
-                              message: "Ник успешно обновлен",
-                              user: %{
-                                id: updated_user.id,
-                                login: updated_user.login,
-                                email: updated_user.email,
-                                nickname: updated_user.nickname,
-                                role: updated_user.role,
-                                is_premium: updated_user.is_premium,
-                                avatar: updated_user.avatar
-                              },
-                              token: new_token
-                            })
+  def update_nickname(conn, %{"nickname" => nickname}) do
+    conn = authenticate_request(conn, [])
 
-                          {:error, reason} ->
-                            return_error(conn, :internal_server_error, "Ошибка обновления токена: #{reason}")
-                        end
+    if conn.halted do
+      conn
+    else
+      user = conn.assigns.current_user
 
-                      {:error, changeset} when is_struct(changeset, Ecto.Changeset) ->
-                        conn
-                        |> put_status(:bad_request)
-                        |> json(%{success: false, errors: format_errors(changeset)})
+      case Auth.update_nickname(user, nickname) do
+        {:ok, updated_user} ->
+          case Auth.generate_token(updated_user) do
+            {:ok, new_token} ->
+              json(conn, %{
+                message: "Никнейм успешно обновлен",
+                token: new_token,
+                user: %{
+                  id: updated_user.id,
+                  login: updated_user.login,
+                  nickname: updated_user.nickname,
+                  email: updated_user.email
+                }
+              })
 
-                      {:error, message} when is_binary(message) ->
-                        return_error(conn, :bad_request, message)
-                    end
-                end
-              _ ->
-                return_error(conn, :unauthorized, "Недействительный токен")
-            end
-          {:error, _} ->
-            return_error(conn, :unauthorized, "Недействительный токен")
-        end
-      _ ->
-        return_error(conn, :unauthorized, "Отсутствует токен авторизации")
+            {:error, reason} ->
+              conn
+              |> put_status(:internal_server_error)
+              |> json(%{error: "Ошибка генерации токена: #{reason}"})
+          end
+
+        {:error, reason} when is_binary(reason) ->
+          conn
+          |> put_status(:unprocessable_entity)
+          |> json(%{error: reason})
+
+        {:error, %Ecto.Changeset{} = changeset} ->
+          conn
+          |> put_status(:unprocessable_entity)
+          |> json(%{error: "Ошибка валидации", details: inspect(changeset.errors)})
+
+        {:error, reason} ->
+          conn
+          |> put_status(:bad_request)
+          |> json(%{error: inspect(reason)})
+      end
     end
   end
 
