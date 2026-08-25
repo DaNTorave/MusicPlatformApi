@@ -2,6 +2,20 @@ defmodule MusicPlatformApiWeb.AuthController do
   use MusicPlatformApiWeb, :controller
   alias MusicPlatformApi.{Auth, PasswordUtils}
   alias MusicPlatformApi.User
+  alias MusicPlatformApi.Auth
+
+  defp authenticate_request(conn, _opts) do
+    with ["Bearer " <> token] <- get_req_header(conn, "authorization"),
+         user when not is_nil(user) <- Auth.get_user_from_token(token) do
+      assign(conn, :current_user, user)
+    else
+      _ ->
+        conn
+        |> put_status(:unauthorized)
+        |> json(%{error: "Требуется авторизация"})
+        |> halt()
+    end
+  end
 
   def register(conn, params) do
     case Auth.register_user(params) do
@@ -97,6 +111,98 @@ defmodule MusicPlatformApiWeb.AuthController do
     conn
     |> put_status(:ok)
     |> json(%{success: true, message: "Выход выполнен успешно"})
+  end
+
+  def change_password(conn, %{
+        "current_password" => cur_pwd,
+        "new_password" => new_pwd,
+        "new_password_confirmation" => new_pwd_conf
+      }) do
+    conn = authenticate_request(conn, [])
+    if conn.halted do
+      conn
+    else
+      user = conn.assigns.current_user
+
+      case Auth.change_password(user, cur_pwd, new_pwd, new_pwd_conf) do
+        {:ok, _user} ->
+          json(conn, %{message: "Пароль успешно изменен"})
+
+        {:error, :invalid_current_password} ->
+          conn
+          |> put_status(:unprocessable_entity)
+          |> json(%{error: "Неверный текущий пароль"})
+
+        {:error, :password_mismatch} ->
+          conn
+          |> put_status(:unprocessable_entity)
+          |> json(%{error: "Новые пароли не совпадают"})
+
+        {:error, :password_confirmation_mismatch} ->
+          conn
+          |> put_status(:unprocessable_entity)
+          |> json(%{error: "Новые пароли не совпадают"})
+
+        {:error, %Ecto.Changeset{} = changeset} ->
+          conn
+          |> put_status(:unprocessable_entity)
+          |> json(%{error: "Ошибка валидации пароля", details: inspect(changeset.errors)})
+
+        {:error, reason} ->
+          conn
+          |> put_status(:unprocessable_entity)
+          |> json(%{error: to_string(reason)})
+      end
+    end
+  end
+
+  def request_reset_password(conn, %{"email" => email}) do
+    case Auth.request_password_reset(email) do
+      {:ok, %{code: code, reset_token: reset_token}} ->
+        # На выход отдается сгенерированный код и токен подтверждения
+        json(conn, %{
+          message: "Код подтверждения сгенерирован",
+          code: code,
+          reset_token: reset_token
+        })
+
+      {:error, :not_found} ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "Пользователь с такой почтой не найден"})
+
+      {:error, reason} ->
+        conn
+        |> put_status(:internal_server_error)
+        |> json(%{error: to_string(reason)})
+    end
+  end
+
+  def confirm_reset_password(conn, %{
+        "reset_token" => reset_token,
+        "code" => code,
+        "new_password" => new_pwd,
+        "new_password_confirmation" => new_pwd_conf
+      }) do
+    case Auth.reset_password(reset_token, code, new_pwd, new_pwd_conf) do
+      {:ok, _user} ->
+        json(conn, %{message: "Пароль успешно обновлен"})
+
+      {:error, :password_confirmation_mismatch} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "Пароли не совпадают"})
+
+      {:error, :invalid_code} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "Неверный код подтверждения"})
+
+      {:error, reason} ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: "Не удалось сбросить пароль: #{inspect(reason)}"})
+    end
   end
 
   def get_profile(conn, _params) do

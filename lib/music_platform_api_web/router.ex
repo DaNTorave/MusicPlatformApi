@@ -13,8 +13,12 @@ defmodule MusicPlatformApiWeb.Router do
     post "/logout", AuthController, :logout
     get "/profile/:id", AuthController, :get_public_profile
     get "/profile", AuthController, :get_profile
+
     put "/change-password", AuthController, :change_password
-    post "/reset-password", AuthController, :reset_password
+
+    post "/reset-password/request", AuthController, :request_reset_password
+    post "/reset-password/confirm", AuthController, :confirm_reset_password
+
     put "/update-nickname", AuthController, :update_nickname
   end
 

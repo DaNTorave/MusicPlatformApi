@@ -187,4 +187,56 @@ defmodule MusicPlatformApi.Auth do
       end
     end
   end
+
+  def change_password(%User{} = user, current_password, new_password, new_password_confirmation) do
+    cond do
+      !User.valid_password?(user, current_password) -> {:error, :invalid_current_password}
+      new_password != new_password_confirmation -> {:error, :password_mismatch}
+      true -> update_password(user, new_password)
+    end
+  end
+
+  def request_password_reset(email) do
+    case get_user_by_email(email) do
+      nil ->
+        {:error, :not_found}
+
+      user ->
+        code = :rand.uniform(900_000) + 99_999 |> Integer.to_string()
+
+        claims = %{
+          "user_id" => user.id,
+          "reset_code" => code,
+          "purpose" => "reset_password",
+          "exp" => System.system_time(:second) + 900
+        }
+
+        case Token.generate_token(claims) do
+          {:ok, reset_token, _} ->
+            {:ok, %{code: code, reset_token: reset_token}}
+
+          error ->
+            error
+        end
+    end
+  end
+
+  def reset_password(reset_token, code, new_password, new_password_confirmation) do
+    cond do
+      new_password != new_password_confirmation ->
+        {:error, :password_confirmation_mismatch}
+
+      true ->
+        with {:ok, claims} <- Token.verify_token(reset_token),
+             true <- claims["purpose"] == "reset_password",
+             true <- to_string(claims["reset_code"]) == to_string(code),
+             user when not is_nil(user) <- get_user(claims["user_id"]) do
+          update_password(user, new_password)
+        else
+          false -> {:error, :invalid_code}
+          nil -> {:error, :user_not_found}
+          {:error, _reason} = err -> err
+        end
+    end
+  end
 end
