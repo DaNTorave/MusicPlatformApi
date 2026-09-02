@@ -30,3 +30,4 @@ music_platform_api-*.tar
 directory.py
 
 *.txt
+priv/static/uploads

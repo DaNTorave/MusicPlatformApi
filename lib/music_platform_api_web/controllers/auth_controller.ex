@@ -39,24 +39,24 @@ defmodule MusicPlatformApiWeb.AuthController do
           token: token
         })
 
-      {:ok, %User{} = user} ->
-        conn
-        |> put_status(:created)
-        |> json(%{
-          success: true,
-          message: "Регистрация прошла успешно, но без токена",
-          user: %{
-            id: user.id,
-            login: user.login,
-            email: user.email,
-            nickname: user.nickname,
-            role: user.role,
-            is_premium: user.is_premium,
-            avatar: user.avatar,
-            inserted_at: user.inserted_at,
-            updated_at: user.updated_at
-          }
-        })
+      # {:ok, %User{} = user} ->
+      #   conn
+      #   |> put_status(:created)
+      #   |> json(%{
+      #     success: true,
+      #     message: "Регистрация прошла успешно, но без токена",
+      #     user: %{
+      #       id: user.id,
+      #       login: user.login,
+      #       email: user.email,
+      #       nickname: user.nickname,
+      #       role: user.role,
+      #       is_premium: user.is_premium,
+      #       avatar: user.avatar,
+      #       inserted_at: user.inserted_at,
+      #       updated_at: user.updated_at
+      #     }
+      #   })
 
       {:error, changeset} ->
         conn
@@ -383,46 +383,32 @@ defmodule MusicPlatformApiWeb.AuthController do
     return_error(conn, :bad_request, "Требуется ник")
   end
 
-  def change_password(conn, %{"current_password" => current, "new_password" => new}) do
-    case get_req_header(conn, "authorization") do
-      ["Bearer " <> token] ->
-        case Auth.verify_token(token) do
-          {:ok, claims} ->
-            case claims do
-              %{"user_id" => user_id} when is_integer(user_id) ->
-                case Auth.get_user(user_id) do
-                  nil ->
-                    return_error(conn, :not_found, "Пользователь не найден")
-                  user ->
-                    if Auth.check_password(user, current) do
-                      case Auth.update_password(user, new) do
-                        {:ok, _} ->
-                          conn
-                          |> put_status(:ok)
-                          |> json(%{success: true, message: "Пароль успешно обновлен"})
+  def upload_avatar(conn, %{"avatar" => %Plug.Upload{} = upload}) do
+    conn = authenticate_request(conn, [])
+    if conn.halted do
+      conn
+    else
+      user = conn.assigns.current_user
+      {:ok, url, _path} = MusicPlatformApi.Music.save_upload(upload, "avatars")
 
-                        {:error, changeset} ->
-                          conn
-                          |> put_status(:bad_request)
-                          |> json(%{success: false, errors: format_errors(changeset)})
-                      end
-                    else
-                      return_error(conn, :unauthorized, "Текущий пароль неверен")
-                    end
-                end
-              _ ->
-                return_error(conn, :unauthorized, "Недействительный токен")
-            end
-          {:error, _} ->
-            return_error(conn, :unauthorized, "Недействительный токен")
-        end
-      _ ->
-        return_error(conn, :unauthorized, "Отсутствует токен авторизации")
+      case Auth.update_user(user, %{avatar: url}) do
+        {:ok, updated_user} ->
+          json(conn, %{
+            success: true,
+            avatar: updated_user.avatar,
+            user: %{
+              id: updated_user.id,
+              login: updated_user.login,
+              nickname: updated_user.nickname,
+              avatar: updated_user.avatar,
+              role: updated_user.role,
+              is_premium: updated_user.is_premium
+            }
+          })
+        {:error, changeset} ->
+          conn |> put_status(:bad_request) |> json(%{errors: format_errors(changeset)})
+      end
     end
-  end
-
-  def change_password(conn, _params) do
-    return_error(conn, :bad_request, "Требуется текущий и новый пароль")
   end
 
   def reset_password(conn, %{"email" => email}) do

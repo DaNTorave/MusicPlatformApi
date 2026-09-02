@@ -56,6 +56,11 @@ defmodule MusicPlatformApiWeb.Endpoint do
     gzip: not code_reloading?,
     only: MusicPlatformApiWeb.static_paths()
 
+  plug Plug.Static,
+    at: "/uploads",
+    from: Path.expand("priv/static/uploads"),
+    gzip: false
+
   if code_reloading? do
     plug Phoenix.CodeReloader
     plug Phoenix.Ecto.CheckRepoStatus, otp_app: :music_platform_api
@@ -71,7 +76,8 @@ defmodule MusicPlatformApiWeb.Endpoint do
   plug Plug.Parsers,
     parsers: [:urlencoded, :multipart, :json],
     pass: ["*/*"],
-    json_decoder: Phoenix.json_library()
+    json_decoder: Phoenix.json_library(),
+    length: 250_000_000
 
   plug Plug.MethodOverride
   plug Plug.Head
