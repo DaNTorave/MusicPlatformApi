@@ -2,24 +2,6 @@ defmodule MusicPlatformApi.Music.Track do
   use Ecto.Schema
   import Ecto.Changeset
 
-  @derive {Jason.Encoder,
-           only: [
-             :id,
-             :title,
-             :audio_uuid,
-             :duration_seconds,
-             :plays_count,
-             :likes_count,
-             :is_single,
-             :cover,
-             :status,
-             :moderation_comment,
-             :artist_id,
-             :album_id,
-             :creator_id,
-             :inserted_at,
-             :updated_at
-           ]}
   schema "tracks" do
     field :title, :string
     field :audio_uuid, Ecto.UUID
@@ -71,4 +53,56 @@ defmodule MusicPlatformApi.Music.Track do
   def resolve_cover(%__MODULE__{cover: nil, album: %{cover: album_cover}}) when not is_nil(album_cover), do: album_cover
   def resolve_cover(%__MODULE__{cover: cover}) when not is_nil(cover), do: cover
   def resolve_cover(_), do: "/uploads/covers/default_cover.jpg"
+
+  defimpl Jason.Encoder, for: MusicPlatformApi.Music.Track do
+    def encode(track, opts) do
+      resolved_cover =
+        case {track.cover, track.album} do
+          {cover, _} when not is_nil(cover) and cover != "" -> cover
+          {_, %{cover: album_cover}} when not is_nil(album_cover) -> album_cover
+          _ -> track.cover
+        end
+
+      base = %{
+        id: track.id,
+        title: track.title,
+        audio_uuid: track.audio_uuid,
+        duration_seconds: track.duration_seconds,
+        plays_count: track.plays_count,
+        likes_count: track.likes_count,
+        is_single: track.is_single,
+        cover: resolved_cover,
+        status: track.status,
+        moderation_comment: track.moderation_comment,
+        artist_id: track.artist_id,
+        album_id: track.album_id,
+        creator_id: track.creator_id,
+        inserted_at: track.inserted_at,
+        updated_at: track.updated_at
+      }
+
+      base =
+        case track.artist do
+          %Ecto.Association.NotLoaded{} -> base
+          nil -> base
+          artist -> Map.put(base, :artist, %{id: artist.id, name: artist.name})
+        end
+
+      base =
+        case track.album do
+          %Ecto.Association.NotLoaded{} -> base
+          nil -> base
+          album -> Map.put(base, :album, %{id: album.id, title: album.title, cover: album.cover})
+        end
+
+      base =
+        case track.collaborators do
+          %Ecto.Association.NotLoaded{} -> base
+          nil -> Map.put(base, :collaborators, [])
+          collabs -> Map.put(base, :collaborators, Enum.map(collabs, &%{id: &1.id, name: &1.name}))
+        end
+
+      Jason.Encode.map(base, opts)
+    end
+  end
 end

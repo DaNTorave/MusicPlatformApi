@@ -4,17 +4,17 @@ defmodule MusicPlatformApi.Music do
   alias MusicPlatformApi.Music.{Artist, Album, Track}
   alias MusicPlatformApi.Notifications.Notification
 
-def save_upload(%Plug.Upload{path: tmp_path, filename: filename}, subfolder) do
-  ext = Path.extname(filename)
-  unique_name = "#{Ecto.UUID.generate()}#{ext}"
+  def save_upload(%Plug.Upload{path: tmp_path, filename: filename}, subfolder) do
+    ext = Path.extname(filename)
+    unique_name = "#{Ecto.UUID.generate()}#{ext}"
 
-  dest_dir = Path.expand("priv/static/uploads/#{subfolder}")
-  File.mkdir_p!(dest_dir)
-  dest_path = Path.join(dest_dir, unique_name)
-  File.cp!(tmp_path, dest_path)
+    dest_dir = Path.expand("priv/static/uploads/#{subfolder}")
+    File.mkdir_p!(dest_dir)
+    dest_path = Path.join(dest_dir, unique_name)
+    File.cp!(tmp_path, dest_path)
 
-  {:ok, "/uploads/#{subfolder}/#{unique_name}", dest_path}
-end
+    {:ok, "/uploads/#{subfolder}/#{unique_name}", dest_path}
+  end
 
   def create_artist(attrs, user_id) do
     %Artist{}
@@ -39,12 +39,25 @@ end
               end
               |> Enum.reject(&(&1 == "" or is_nil(&1)))
 
+            duration =
+              case Map.get(track_params, "duration_seconds") do
+                nil -> 0
+                val when is_integer(val) -> val
+                val when is_binary(val) ->
+                  case Integer.parse(val) do
+                    {i, _} -> i
+                    _ -> 0
+                  end
+                _ -> 0
+              end
+
             track_attrs =
               track_params
               |> Map.put("album_id", album.id)
               |> Map.put("artist_id", album.artist_id)
               |> Map.put("creator_id", user_id)
               |> Map.put("is_single", false)
+              |> Map.put("duration_seconds", duration)
 
             track =
               %Track{}
@@ -71,11 +84,24 @@ end
   end
 
   def create_single(attrs, user_id) do
+    duration =
+      case Map.get(attrs, "duration_seconds") do
+        nil -> 0
+        val when is_integer(val) -> val
+        val when is_binary(val) ->
+          case Integer.parse(val) do
+            {i, _} -> i
+            _ -> 0
+          end
+        _ -> 0
+      end
+
     attrs =
       attrs
       |> Map.put("creator_id", user_id)
       |> Map.put("is_single", true)
       |> Map.put("album_id", nil)
+      |> Map.put("duration_seconds", duration)
 
     %Track{}
     |> Track.changeset(attrs)
@@ -90,7 +116,6 @@ end
     Repo.transaction(fn ->
       case Repo.update(changeset) do
         {:ok, updated_item} ->
-          # Если модерируется альбом, синхронизируем статус всех его треков
           if schema == Album do
             from(t in Track, where: t.album_id == ^updated_item.id)
             |> Repo.update_all(set: [status: status, moderation_comment: comment])
@@ -146,12 +171,14 @@ end
       albums =
         Repo.all(
           from a in Album,
-            left_join: t in assoc(a, :tracks),
-            left_join: c in assoc(t, :collaborators),
-            where: (a.artist_id == ^artist_id or c.id == ^artist_id) and a.status == "approved",
-            distinct: true,
+            where: a.artist_id == ^artist_id and a.status == "approved",
+            order_by: [desc: a.inserted_at],
             preload: [
-              tracks: ^from(t in Track, where: t.status == "approved", order_by: [asc: t.id])
+              tracks: ^from(t in Track,
+                where: t.status == "approved",
+                order_by: [asc: t.id],
+                preload: [:artist, :collaborators]
+              )
             ]
         )
 
@@ -161,10 +188,20 @@ end
             left_join: c in assoc(t, :collaborators),
             where: (t.artist_id == ^artist_id or c.id == ^artist_id) and t.is_single == true and t.status == "approved",
             distinct: true,
-            order_by: [asc: t.id]
+            order_by: [desc: t.inserted_at],
+            preload: [:artist, :collaborators]
         )
 
-      {:ok, %{artist: artist, albums: albums, singles: singles}}
+      collab_tracks =
+        Repo.all(
+          from t in Track,
+            join: c in assoc(t, :collaborators),
+            where: c.id == ^artist_id and t.is_single == false and t.status == "approved",
+            distinct: true,
+            preload: [:artist, :collaborators, :album]
+        )
+
+      {:ok, %{artist: artist, albums: albums, singles: singles, collab_tracks: collab_tracks}}
     end
   end
 end

@@ -4,15 +4,6 @@ defmodule MusicPlatformApiWeb.MusicController do
   alias MusicPlatformApi.{Auth, Music, Repo}
   alias MusicPlatformApi.Music.{Artist, Track, Album}
 
-  defp authenticate_staff(conn) do
-    with ["Bearer " <> token] <- get_req_header(conn, "authorization"),
-         user when not is_nil(user) and user.role in ["admin", "moderator"] <- Auth.get_user_from_token(token) do
-      {:ok, user}
-    else
-      _ -> {:error, :forbidden}
-    end
-  end
-
   def delete_artist(conn, %{"id" => id}) do
     with ["Bearer " <> token] <- get_req_header(conn, "authorization"),
          user when not is_nil(user) <- Auth.get_user_from_token(token),
@@ -258,17 +249,18 @@ defmodule MusicPlatformApiWeb.MusicController do
           where: t.status == "approved",
           order_by: [desc: t.plays_count, desc: t.inserted_at],
           limit: 10,
-          preload: [:artist, :album]
+          preload: [:artist, :album, :collaborators]
       )
       |> Enum.map(fn t ->
         %{
           id: t.id,
           title: t.title,
-          duration_seconds: t.duration_seconds,
-          plays_count: t.plays_count,
-          likes_count: t.likes_count,
+          duration_seconds: t.duration_seconds || 0,
+          plays_count: t.plays_count || 0,
+          likes_count: t.likes_count || 0,
           cover: Track.resolve_cover(t),
           artist: if(t.artist, do: %{id: t.artist.id, name: t.artist.name}, else: nil),
+          collaborators: Enum.map(t.collaborators || [], &%{id: &1.id, name: &1.name}),
           album_id: t.album_id
         }
       end)
