@@ -14,11 +14,14 @@ defmodule MusicPlatformApi.Music.Track do
     field :status, :string, default: "pending"
     field :moderation_comment, :string
 
+    field :is_cover, :boolean, default: false
+
     field :effective_cover, :string, virtual: true
 
     belongs_to :artist, MusicPlatformApi.Music.Artist
     belongs_to :album, MusicPlatformApi.Music.Album
     belongs_to :creator, MusicPlatformApi.User, foreign_key: :creator_id
+    belongs_to :original_track, MusicPlatformApi.Music.Track, foreign_key: :original_track_id
 
     many_to_many :collaborators, MusicPlatformApi.Music.Artist,
       join_through: "track_collaborators",
@@ -38,14 +41,16 @@ defmodule MusicPlatformApi.Music.Track do
       :cover,
       :artist_id,
       :album_id,
-      :creator_id
+      :creator_id,
+      :is_cover,
+      :original_track_id
     ])
     |> validate_required([:title, :audio_uuid, :file_path, :artist_id, :creator_id])
   end
 
   def moderation_changeset(track, attrs) do
     track
-    |> cast(attrs, [:status, :moderation_comment])
+    |> cast(attrs, [:status, :moderation_comment, :is_cover, :original_track_id, :title])
     |> validate_inclusion(:status, ["pending", "approved", "rejected"])
   end
 
@@ -77,6 +82,8 @@ defmodule MusicPlatformApi.Music.Track do
         artist_id: track.artist_id,
         album_id: track.album_id,
         creator_id: track.creator_id,
+        is_cover: track.is_cover,
+        original_track_id: track.original_track_id,
         inserted_at: track.inserted_at,
         updated_at: track.updated_at
       }
@@ -100,6 +107,33 @@ defmodule MusicPlatformApi.Music.Track do
           %Ecto.Association.NotLoaded{} -> base
           nil -> Map.put(base, :collaborators, [])
           collabs -> Map.put(base, :collaborators, Enum.map(collabs, &%{id: &1.id, name: &1.name}))
+        end
+
+      base =
+        case track.original_track do
+          %Ecto.Association.NotLoaded{} -> base
+          nil -> Map.put(base, :original_track, nil)
+          orig ->
+            orig_artist =
+              case orig.artist do
+                %Ecto.Association.NotLoaded{} -> nil
+                nil -> nil
+                a -> %{id: a.id, name: a.name}
+              end
+
+            orig_cover =
+              case {orig.cover, orig.album} do
+                {c, _} when not is_nil(c) and c != "" -> c
+                {_, %{cover: album_cover}} when not is_nil(album_cover) and album_cover != "" -> album_cover
+                _ -> orig.cover
+              end
+
+            Map.put(base, :original_track, %{
+              id: orig.id,
+              title: orig.title,
+              cover: orig_cover,
+              artist: orig_artist
+            })
         end
 
       Jason.Encode.map(base, opts)

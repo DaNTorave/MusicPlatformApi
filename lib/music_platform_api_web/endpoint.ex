@@ -12,7 +12,6 @@ defmodule MusicPlatformApiWeb.Endpoint do
     websocket: [connect_info: [session: @session_options]],
     longpoll: [connect_info: [session: @session_options]]
 
-  # Исправлено: Corsica вместо CORSica
   plug Corsica,
     origins: [
       "http://localhost:3000",

@@ -6,9 +6,7 @@ defmodule MusicPlatformApiWeb.StreamController do
   def stream(conn, %{"id" => id}) do
     track = Repo.get!(Track, id)
 
-    # Проверяем статус (только approved или создатель/админ)
     if File.exists?(track.file_path) do
-      # Инкремент прослушиваний асинхронно
       Task.start(fn ->
         Ecto.Adapters.SQL.query(Repo, "UPDATE tracks SET plays_count = plays_count + 1 WHERE id = $1", [track.id])
         Ecto.Adapters.SQL.query(Repo, "UPDATE artists SET plays_count = plays_count + 1 WHERE id = $1", [track.artist_id])

@@ -5,9 +5,9 @@ defmodule MusicPlatformApi.Repo.Migrations.CreateNotifications do
     create table(:notifications) do
       add :title, :string, null: false
       add :message, :text, null: false
-      add :type, :string, default: "info", null: false # "success", "error", "info"
+      add :type, :string, default: "info", null: false
       add :is_read, :boolean, default: false, null: false
-      add :entity_type, :string # "artist", "album", "track"
+      add :entity_type, :string
       add :entity_id, :integer
       add :user_id, references(:users, on_delete: :delete_all), null: false
 

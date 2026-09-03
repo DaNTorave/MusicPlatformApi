@@ -39,17 +39,9 @@ defmodule MusicPlatformApi.Music do
               end
               |> Enum.reject(&(&1 == "" or is_nil(&1)))
 
-            duration =
-              case Map.get(track_params, "duration_seconds") do
-                nil -> 0
-                val when is_integer(val) -> val
-                val when is_binary(val) ->
-                  case Integer.parse(val) do
-                    {i, _} -> i
-                    _ -> 0
-                  end
-                _ -> 0
-              end
+            duration = parse_int(Map.get(track_params, "duration_seconds"))
+            is_cover = parse_boolean(Map.get(track_params, "is_cover"))
+            orig_track_id = parse_nullable_id(Map.get(track_params, "original_track_id"))
 
             track_attrs =
               track_params
@@ -58,6 +50,8 @@ defmodule MusicPlatformApi.Music do
               |> Map.put("creator_id", user_id)
               |> Map.put("is_single", false)
               |> Map.put("duration_seconds", duration)
+              |> Map.put("is_cover", is_cover)
+              |> Map.put("original_track_id", orig_track_id)
 
             track =
               %Track{}
@@ -84,17 +78,9 @@ defmodule MusicPlatformApi.Music do
   end
 
   def create_single(attrs, user_id) do
-    duration =
-      case Map.get(attrs, "duration_seconds") do
-        nil -> 0
-        val when is_integer(val) -> val
-        val when is_binary(val) ->
-          case Integer.parse(val) do
-            {i, _} -> i
-            _ -> 0
-          end
-        _ -> 0
-      end
+    duration = parse_int(Map.get(attrs, "duration_seconds"))
+    is_cover = parse_boolean(Map.get(attrs, "is_cover"))
+    orig_track_id = parse_nullable_id(Map.get(attrs, "original_track_id"))
 
     attrs =
       attrs
@@ -102,6 +88,8 @@ defmodule MusicPlatformApi.Music do
       |> Map.put("is_single", true)
       |> Map.put("album_id", nil)
       |> Map.put("duration_seconds", duration)
+      |> Map.put("is_cover", is_cover)
+      |> Map.put("original_track_id", orig_track_id)
 
     %Track{}
     |> Track.changeset(attrs)
@@ -168,6 +156,8 @@ defmodule MusicPlatformApi.Music do
     if is_nil(artist) do
       {:error, :not_found}
     else
+      track_preloads = [:artist, :collaborators, original_track: [:artist, :album]]
+
       albums =
         Repo.all(
           from a in Album,
@@ -177,7 +167,7 @@ defmodule MusicPlatformApi.Music do
               tracks: ^from(t in Track,
                 where: t.status == "approved",
                 order_by: [asc: t.id],
-                preload: [:artist, :collaborators]
+                preload: ^track_preloads
               )
             ]
         )
@@ -189,7 +179,7 @@ defmodule MusicPlatformApi.Music do
             where: (t.artist_id == ^artist_id or c.id == ^artist_id) and t.is_single == true and t.status == "approved",
             distinct: true,
             order_by: [desc: t.inserted_at],
-            preload: [:artist, :collaborators]
+            preload: ^track_preloads
         )
 
       collab_tracks =
@@ -198,10 +188,37 @@ defmodule MusicPlatformApi.Music do
             join: c in assoc(t, :collaborators),
             where: c.id == ^artist_id and t.is_single == false and t.status == "approved",
             distinct: true,
-            preload: [:artist, :collaborators, :album]
+            preload: [:artist, :collaborators, :album, original_track: [:artist]]
         )
 
       {:ok, %{artist: artist, albums: albums, singles: singles, collab_tracks: collab_tracks}}
     end
   end
+
+  def parse_int(nil), do: 0
+  def parse_int(val) when is_integer(val), do: val
+  def parse_int(val) when is_binary(val) do
+    case Integer.parse(val) do
+      {i, _} -> i
+      _ -> 0
+    end
+  end
+  def parse_int(_), do: 0
+
+  def parse_boolean(true), do: true
+  def parse_boolean("true"), do: true
+  def parse_boolean(1), do: true
+  def parse_boolean("1"), do: true
+  def parse_boolean(_), do: false
+
+  def parse_nullable_id(nil), do: nil
+  def parse_nullable_id(""), do: nil
+  def parse_nullable_id(val) when is_integer(val), do: val
+  def parse_nullable_id(val) when is_binary(val) do
+    case Integer.parse(val) do
+      {i, _} -> i
+      _ -> nil
+    end
+  end
+  def parse_nullable_id(_), do: nil
 end
