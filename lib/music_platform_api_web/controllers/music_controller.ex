@@ -248,7 +248,7 @@ defmodule MusicPlatformApiWeb.MusicController do
         from t in Track,
           where: t.status == "approved",
           order_by: [desc: t.plays_count, desc: t.inserted_at],
-          limit: 10,
+          limit: 100,
           preload: [:artist, :album, :collaborators]
       )
       |> Enum.map(fn t ->

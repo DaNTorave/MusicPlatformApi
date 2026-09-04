@@ -27,6 +27,8 @@ defmodule MusicPlatformApiWeb.Router do
 
     # Музло
     get "/stream/:id", StreamController, :stream
+    get "/download/:id", StreamController, :download
+
     get "/artists", MusicController, :list_artists
     get "/artists/:id", MusicController, :get_artist
     get "/notifications", NotificationController, :index

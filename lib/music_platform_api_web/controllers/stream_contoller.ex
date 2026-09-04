@@ -51,4 +51,33 @@ defmodule MusicPlatformApiWeb.StreamController do
         |> send_file(200, path)
     end
   end
+
+  def download(conn, %{"id" => id}) do
+    track =
+      Track
+      |> Repo.get!(id)
+      |> Repo.preload(:artist)
+
+    if File.exists?(track.file_path) do
+      artist_name = if track.artist, do: track.artist.name, else: "Неизвестный исполнитель"
+      track_title = track.title || "Без названия"
+
+      full_name = "#{artist_name} — #{track_title}"
+
+      clean_name = String.replace(full_name, ~r/[\\\/:\*\?"<>\|]/u, "")
+      filename = "#{clean_name}.mp3"
+
+      encoded_filename = URI.encode(filename)
+
+      conn
+      |> put_resp_header(
+        "content-disposition",
+        "attachment; filename=\"#{encoded_filename}\"; filename*=UTF-8''#{encoded_filename}"
+      )
+      |> put_resp_header("content-type", "audio/mpeg")
+      |> send_file(200, track.file_path)
+    else
+      conn |> put_status(:not_found) |> json(%{error: "Файл не найден"})
+    end
+  end
 end
