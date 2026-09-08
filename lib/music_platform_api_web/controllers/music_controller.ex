@@ -279,4 +279,21 @@ defmodule MusicPlatformApiWeb.MusicController do
 
     json(conn, %{success: true, data: artists})
   end
+
+  def get_track(conn, %{"id" => id}) do
+    track =
+      MusicPlatformApi.Music.Track
+      |> MusicPlatformApi.Repo.get(id)
+      |> MusicPlatformApi.Repo.preload([:artist, :album, :collaborators, original_track: [:artist, :album]])
+
+    case track do
+      nil ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "Трек не найден"})
+
+      track ->
+        json(conn, %{track: track})
+    end
+  end
 end

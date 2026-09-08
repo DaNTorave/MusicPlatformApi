@@ -41,6 +41,8 @@ defmodule MusicPlatformApiWeb.Router do
     post "/upload/album", MusicController, :create_album
     post "/upload/single", MusicController, :create_single
 
+    get "/tracks/:id", MusicController, :get_track
+
     put "/tracks/:id", MusicController, :update_track
     put "/artists/:id", MusicController, :update_artist
 
