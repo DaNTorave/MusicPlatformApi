@@ -389,10 +389,14 @@ defmodule MusicPlatformApiWeb.AuthController do
       conn
     else
       user = conn.assigns.current_user
+      old_avatar = user.avatar
+
       {:ok, url, _path} = MusicPlatformApi.Music.save_upload(upload, "avatars")
 
       case Auth.update_user(user, %{avatar: url}) do
         {:ok, updated_user} ->
+          MusicPlatformApi.Music.delete_file(old_avatar)
+
           json(conn, %{
             success: true,
             avatar: updated_user.avatar,
@@ -406,6 +410,7 @@ defmodule MusicPlatformApiWeb.AuthController do
             }
           })
         {:error, changeset} ->
+          MusicPlatformApi.Music.delete_file(url)
           conn |> put_status(:bad_request) |> json(%{errors: format_errors(changeset)})
       end
     end

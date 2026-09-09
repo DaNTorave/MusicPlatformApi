@@ -185,31 +185,39 @@ defmodule MusicPlatformApiWeb.ModerationController do
           end
 
         update_attrs =
-        case Map.get(params, "cover") do
-          %Plug.Upload{} = upload ->
-            folder = if schema == Artist, do: "avatars", else: "covers"
-            {:ok, url, _path} = Music.save_upload(upload, folder)
+          case Map.get(params, "cover") do
+            %Plug.Upload{} = upload ->
+              folder = if schema == Artist, do: "avatars", else: "covers"
+              {:ok, url, _path} = Music.save_upload(upload, folder)
 
-            if schema == Artist do
-              Map.put(update_attrs, :avatar, url)
-            else
-              Map.put(update_attrs, :cover, url)
-            end
+              old_cover = if schema == Artist, do: item.avatar, else: item.cover
+              Music.delete_file(old_cover)
 
-          _ ->
-            update_attrs
-        end
+              if schema == Artist do
+                Map.put(update_attrs, :avatar, url)
+              else
+                Map.put(update_attrs, :cover, url)
+              end
 
-        update_attrs = case {schema, Map.get(params, "audio")} do
-          {Track, %Plug.Upload{} = upload} ->
-            {:ok, _url, path} = Music.save_upload(upload, "tracks")
-            uuid = Path.basename(path, Path.extname(path))
-            update_attrs
-            |> Map.put(:audio_uuid, uuid)
-            |> Map.put(:file_path, path)
-          _ ->
-            update_attrs
-        end
+            _ ->
+              update_attrs
+          end
+
+        update_attrs =
+          case {schema, Map.get(params, "audio")} do
+            {Track, %Plug.Upload{} = upload} ->
+              {:ok, _url, path} = Music.save_upload(upload, "tracks")
+              uuid = Path.basename(path, Path.extname(path))
+
+              Music.delete_file(item.file_path)
+
+              update_attrs
+              |> Map.put(:audio_uuid, uuid)
+              |> Map.put(:file_path, path)
+
+            _ ->
+              update_attrs
+          end
 
         update_attrs =
           if schema == Track do
@@ -235,8 +243,15 @@ defmodule MusicPlatformApiWeb.ModerationController do
               |> Enum.reject(&is_nil/1)
               |> Enum.map(fn id -> if is_binary(id), do: String.to_integer(id), else: id end)
 
-            from(t in Track, where: t.album_id == ^item.id and t.id not in ^submitted_track_ids)
-            |> Repo.delete_all()
+            tracks_to_delete =
+              from(t in Track, where: t.album_id == ^item.id and t.id not in ^submitted_track_ids)
+              |> Repo.all()
+
+            Enum.each(tracks_to_delete, fn trk ->
+              Music.delete_file(trk.file_path)
+              Music.delete_file(trk.cover)
+              Repo.delete!(trk)
+            end)
 
             Enum.each(tracks_params, fn {idx, t_param} ->
               track_id = t_param["id"]
@@ -267,16 +282,21 @@ defmodule MusicPlatformApiWeb.ModerationController do
                   }
                   t_attrs = if t_param["title"], do: Map.put(t_attrs, :title, t_param["title"]), else: t_attrs
 
-                  t_attrs = case t_param["audio"] do
-                    %Plug.Upload{} = upload ->
-                      {:ok, _url, path} = Music.save_upload(upload, "tracks")
-                      uuid = Path.basename(path, Path.extname(path))
-                      t_attrs
-                      |> Map.put(:audio_uuid, uuid)
-                      |> Map.put(:file_path, path)
-                    _ ->
-                      t_attrs
-                  end
+                  t_attrs =
+                    case t_param["audio"] do
+                      %Plug.Upload{} = upload ->
+                        {:ok, _url, path} = Music.save_upload(upload, "tracks")
+                        uuid = Path.basename(path, Path.extname(path))
+
+                        Music.delete_file(track.file_path)
+
+                        t_attrs
+                        |> Map.put(:audio_uuid, uuid)
+                        |> Map.put(:file_path, path)
+
+                      _ ->
+                        t_attrs
+                    end
 
                   track
                   |> Track.moderation_changeset(t_attrs)

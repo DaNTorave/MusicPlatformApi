@@ -4,125 +4,6 @@ defmodule MusicPlatformApiWeb.MusicController do
   alias MusicPlatformApi.{Auth, Music, Repo}
   alias MusicPlatformApi.Music.{Artist, Track, Album}
 
-  def delete_artist(conn, %{"id" => id}) do
-    with ["Bearer " <> token] <- get_req_header(conn, "authorization"),
-         user when not is_nil(user) <- Auth.get_user_from_token(token),
-         artist when not is_nil(artist) <- Repo.get(Artist, id) |> Repo.preload([:albums, :tracks]) do
-
-      if user.role in ["admin", "moderator"] do
-        Enum.each(artist.tracks || [], fn track ->
-          if track.file_path && File.exists?(track.file_path) do
-            File.rm(track.file_path)
-          end
-        end)
-
-        if artist.avatar && File.exists?(artist.avatar) && not String.contains?(artist.avatar, "default") do
-          File.rm(artist.avatar)
-        end
-
-        case Repo.delete(artist) do
-          {:ok, _deleted} ->
-            json(conn, %{success: true, message: "Исполнитель и все его релизы успешно удалены"})
-
-          {:error, changeset} ->
-            conn
-            |> put_status(:bad_request)
-            |> json(%{error: "Ошибка удаления исполнителя", details: inspect(changeset.errors)})
-        end
-      else
-        conn
-        |> put_status(:forbidden)
-        |> json(%{error: "Недостаточно прав для удаления этого исполнителя"})
-      end
-    else
-      nil ->
-        conn
-        |> put_status(:not_found)
-        |> json(%{error: "Исполнитель не найден"})
-
-      _ ->
-        conn
-        |> put_status(:unauthorized)
-        |> json(%{error: "Требуется авторизация"})
-    end
-  end
-
-  def delete_track(conn, %{"id" => id}) do
-    with ["Bearer " <> token] <- get_req_header(conn, "authorization"),
-         user when not is_nil(user) <- Auth.get_user_from_token(token),
-         track when not is_nil(track) <- Repo.get(Track, id) do
-
-      if user.role in ["admin", "moderator"] do
-        if track.file_path && File.exists?(track.file_path) do
-          File.rm(track.file_path)
-        end
-
-        case Repo.delete(track) do
-          {:ok, _deleted} ->
-            json(conn, %{success: true, message: "Трек успешно удален"})
-
-          {:error, changeset} ->
-            conn
-            |> put_status(:bad_request)
-            |> json(%{error: "Ошибка удаления трека", details: inspect(changeset.errors)})
-        end
-      else
-        conn
-        |> put_status(:forbidden)
-        |> json(%{error: "Недостаточно прав для удаления этого трека"})
-      end
-    else
-      nil ->
-        conn
-        |> put_status(:not_found)
-        |> json(%{error: "Трек не найден"})
-
-      _ ->
-        conn
-        |> put_status(:unauthorized)
-        |> json(%{error: "Требуется авторизация"})
-    end
-  end
-
-  def delete_album(conn, %{"id" => id}) do
-    with ["Bearer " <> token] <- get_req_header(conn, "authorization"),
-         user when not is_nil(user) <- Auth.get_user_from_token(token),
-         album when not is_nil(album) <- Repo.get(Album, id) |> Repo.preload(:tracks) do
-
-      if user.role in ["admin", "moderator"] do
-        Enum.each(album.tracks || [], fn track ->
-          if track.file_path && File.exists?(track.file_path) do
-            File.rm(track.file_path)
-          end
-        end)
-
-        case Repo.delete(album) do
-          {:ok, _deleted} ->
-            json(conn, %{success: true, message: "Альбом успешно удален"})
-
-          {:error, changeset} ->
-            conn
-            |> put_status(:bad_request)
-            |> json(%{error: "Ошибка удаления альбома", details: inspect(changeset.errors)})
-        end
-      else
-        conn
-        |> put_status(:forbidden)
-        |> json(%{error: "Недостаточно прав для удаления этого альбома"})
-      end
-    else
-      nil ->
-        conn
-        |> put_status(:not_found)
-        |> json(%{error: "Альбом не найден"})
-
-      _ ->
-        conn
-        |> put_status(:unauthorized)
-        |> json(%{error: "Требуется авторизация"})
-    end
-  end
-
   defp authenticate_user(conn) do
     with ["Bearer " <> token] <- get_req_header(conn, "authorization"),
          user when not is_nil(user) <- Auth.get_user_from_token(token) do
@@ -219,6 +100,66 @@ defmodule MusicPlatformApiWeb.MusicController do
     else
       {:error, :unauthorized} ->
         conn |> put_status(:unauthorized) |> json(%{error: "Требуется авторизация"})
+    end
+  end
+
+  def delete_track(conn, %{"id" => id}) do
+    track = Repo.get!(Track, id)
+
+    case Repo.delete(track) do
+      {:ok, deleted_track} ->
+        Music.delete_file(deleted_track.file_path)
+        Music.delete_file(deleted_track.cover)
+
+        json(conn, %{success: true, message: "Трек удален"})
+
+      {:error, _changeset} ->
+        conn |> put_status(:bad_request) |> json(%{error: "Ошибка удаления трека"})
+    end
+  end
+
+  def delete_album(conn, %{"id" => id}) do
+    album = Repo.get!(Album, id) |> Repo.preload(:tracks)
+
+    case Repo.delete(album) do
+      {:ok, deleted_album} ->
+        Music.delete_file(deleted_album.cover)
+
+        Enum.each(deleted_album.tracks, fn track ->
+          Music.delete_file(track.file_path)
+          Music.delete_file(track.cover)
+        end)
+
+        json(conn, %{success: true, message: "Альбом и треки удалены"})
+
+      {:error, _} ->
+        conn |> put_status(:bad_request) |> json(%{error: "Ошибка удаления альбома"})
+    end
+  end
+
+  def delete_artist(conn, %{"id" => id}) do
+    artist =
+      Artist
+      |> Repo.get!(id)
+      |> Repo.preload([:albums, :tracks])
+
+    case Repo.delete(artist) do
+      {:ok, deleted_artist} ->
+        Music.delete_file(deleted_artist.avatar)
+
+        Enum.each(deleted_artist.albums, fn album ->
+          Music.delete_file(album.cover)
+        end)
+
+        Enum.each(deleted_artist.tracks, fn track ->
+          Music.delete_file(track.file_path)
+          Music.delete_file(track.cover)
+        end)
+
+        json(conn, %{success: true, message: "Артист удален"})
+
+      {:error, _} ->
+        conn |> put_status(:bad_request) |> json(%{error: "Ошибка удаления артиста"})
     end
   end
 

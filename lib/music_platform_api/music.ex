@@ -237,4 +237,31 @@ defmodule MusicPlatformApi.Music do
     end
   end
   def parse_nullable_id(_), do: nil
+
+  def delete_file(nil), do: :ok
+  def delete_file(""), do: :ok
+
+  def delete_file(url_or_path) when is_binary(url_or_path) do
+    if String.contains?(url_or_path, "default") or String.starts_with?(url_or_path, "http") do
+      :ok
+    else
+      relative_path =
+        if String.starts_with?(url_or_path, "/uploads/") do
+          "priv/static" <> url_or_path
+        else
+          url_or_path
+        end
+
+      full_path = Path.expand(relative_path)
+
+      case File.rm(full_path) do
+        :ok -> :ok
+        {:error, :enoent} -> :ok
+        {:error, reason} ->
+          require Logger
+          Logger.warning("Не удалось удалить файл #{full_path}: #{inspect(reason)}")
+          :ok
+      end
+    end
+  end
 end
