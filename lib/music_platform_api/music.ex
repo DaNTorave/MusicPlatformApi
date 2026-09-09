@@ -24,13 +24,18 @@ defmodule MusicPlatformApi.Music do
 
   def create_album_with_tracks(%{"tracks" => tracks_params} = album_params, user_id) do
     Repo.transaction(fn ->
+      album_year = parse_int(Map.get(album_params, "release_year"))
+      album_params = Map.put(album_params, "release_year", if(album_year > 0, do: album_year, else: nil))
+
       album_changeset =
         %Album{}
         |> Album.changeset(Map.put(album_params, "creator_id", user_id))
 
       case Repo.insert(album_changeset) do
         {:ok, album} ->
-          Enum.each(tracks_params, fn track_params ->
+          tracks_params
+          |> Enum.with_index(1)
+          |> Enum.each(fn {track_params, fallback_index} ->
             collab_ids =
               case Map.get(track_params, "collaborator_ids") do
                 ids when is_list(ids) -> ids
@@ -43,6 +48,12 @@ defmodule MusicPlatformApi.Music do
             is_cover = parse_boolean(Map.get(track_params, "is_cover"))
             orig_track_id = parse_nullable_id(Map.get(track_params, "original_track_id"))
 
+            pos_val = parse_int(Map.get(track_params, "position"))
+            position = if pos_val > 0, do: pos_val, else: fallback_index
+
+            track_year_val = parse_int(Map.get(track_params, "release_year"))
+            release_year = if track_year_val > 0, do: track_year_val, else: album.release_year
+
             track_attrs =
               track_params
               |> Map.put("album_id", album.id)
@@ -52,6 +63,8 @@ defmodule MusicPlatformApi.Music do
               |> Map.put("duration_seconds", duration)
               |> Map.put("is_cover", is_cover)
               |> Map.put("original_track_id", orig_track_id)
+              |> Map.put("position", position)
+              |> Map.put("release_year", release_year)
 
             track =
               %Track{}
@@ -81,6 +94,7 @@ defmodule MusicPlatformApi.Music do
     duration = parse_int(Map.get(attrs, "duration_seconds"))
     is_cover = parse_boolean(Map.get(attrs, "is_cover"))
     orig_track_id = parse_nullable_id(Map.get(attrs, "original_track_id"))
+    year = parse_int(Map.get(attrs, "release_year"))
 
     attrs =
       attrs
@@ -90,6 +104,8 @@ defmodule MusicPlatformApi.Music do
       |> Map.put("duration_seconds", duration)
       |> Map.put("is_cover", is_cover)
       |> Map.put("original_track_id", orig_track_id)
+      |> Map.put("position", 1)
+      |> Map.put("release_year", if(year > 0, do: year, else: nil))
 
     %Track{}
     |> Track.changeset(attrs)
@@ -166,7 +182,7 @@ defmodule MusicPlatformApi.Music do
             preload: [
               tracks: ^from(t in Track,
                 where: t.status == "approved",
-                order_by: [asc: t.id],
+                order_by: [asc: t.position, asc: t.id],
                 preload: ^track_preloads
               )
             ]

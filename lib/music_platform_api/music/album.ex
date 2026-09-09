@@ -5,6 +5,7 @@ defmodule MusicPlatformApi.Music.Album do
   schema "albums" do
     field :title, :string
     field :cover, :string
+    field :release_year, :integer
     field :likes_count, :integer, default: 0
     field :status, :string, default: "pending"
     field :moderation_comment, :string
@@ -18,7 +19,7 @@ defmodule MusicPlatformApi.Music.Album do
 
   def changeset(album, attrs) do
     album
-    |> cast(attrs, [:title, :cover, :artist_id, :creator_id])
+    |> cast(attrs, [:title, :cover, :artist_id, :creator_id, :release_year])
     |> validate_required([:title, :cover, :artist_id, :creator_id])
   end
 
@@ -35,6 +36,7 @@ defimpl Jason.Encoder, for: MusicPlatformApi.Music.Album do
       id: album.id,
       title: album.title,
       cover: album.cover,
+      release_year: album.release_year,
       likes_count: album.likes_count,
       status: album.status,
       moderation_comment: album.moderation_comment,

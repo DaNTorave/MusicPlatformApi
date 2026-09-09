@@ -25,6 +25,8 @@ erl_crash.dump
 # Ignore package tarball (built via "mix hex.build").
 music_platform_api-*.tar
 
+.elixir_ls
+
 .env
 
 directory.py

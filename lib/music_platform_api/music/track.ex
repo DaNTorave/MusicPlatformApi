@@ -11,6 +11,8 @@ defmodule MusicPlatformApi.Music.Track do
     field :likes_count, :integer, default: 0
     field :is_single, :boolean, default: false
     field :cover, :string
+    field :release_year, :integer
+    field :position, :integer, default: 1
     field :status, :string, default: "pending"
     field :moderation_comment, :string
 
@@ -43,14 +45,16 @@ defmodule MusicPlatformApi.Music.Track do
       :album_id,
       :creator_id,
       :is_cover,
-      :original_track_id
+      :original_track_id,
+      :release_year,
+      :position
     ])
     |> validate_required([:title, :audio_uuid, :file_path, :artist_id, :creator_id])
   end
 
   def moderation_changeset(track, attrs) do
     track
-    |> cast(attrs, [:status, :moderation_comment, :is_cover, :original_track_id, :title])
+    |> cast(attrs, [:status, :moderation_comment, :is_cover, :original_track_id, :title, :release_year, :position])
     |> validate_inclusion(:status, ["pending", "approved", "rejected"])
   end
 
@@ -77,6 +81,8 @@ defmodule MusicPlatformApi.Music.Track do
         likes_count: track.likes_count,
         is_single: track.is_single,
         cover: resolved_cover,
+        release_year: track.release_year,
+        position: track.position,
         status: track.status,
         moderation_comment: track.moderation_comment,
         artist_id: track.artist_id,

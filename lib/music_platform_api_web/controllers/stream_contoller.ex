@@ -2,6 +2,7 @@ defmodule MusicPlatformApiWeb.StreamController do
   use MusicPlatformApiWeb, :controller
   alias MusicPlatformApi.Repo
   alias MusicPlatformApi.Music.Track
+  alias MusicPlatformApi.ID3
 
   def stream(conn, %{"id" => id}) do
     track = Repo.get!(Track, id)
@@ -56,18 +57,29 @@ defmodule MusicPlatformApiWeb.StreamController do
     track =
       Track
       |> Repo.get!(id)
-      |> Repo.preload(:artist)
+      |> Repo.preload([:artist, :album])
 
     if File.exists?(track.file_path) do
       artist_name = if track.artist, do: track.artist.name, else: "Неизвестный исполнитель"
       track_title = track.title || "Без названия"
+      album_title = if track.album, do: track.album.title, else: ""
 
-      full_name = "#{artist_name} — #{track_title}"
+      pos_str = to_string(track.position || 1)
+      year_str = if track.release_year, do: to_string(track.release_year), else: ""
 
-      clean_name = String.replace(full_name, ~r/[\\\/:\*\?"<>\|]/u, "")
-      filename = "#{clean_name}.mp3"
+      original_bytes = File.read!(track.file_path)
 
-      encoded_filename = URI.encode(filename)
+      tagged_audio =
+        ID3.inject_tags(original_bytes, %{
+          title: track_title,
+          artist: artist_name,
+          album: album_title,
+          track: pos_str,
+          year: year_str
+        })
+
+      clean_name = String.replace("#{artist_name} — #{track_title}", ~r/[\\\/:\*\?"<>\|]/u, "")
+      encoded_filename = URI.encode("#{clean_name}.mp3")
 
       conn
       |> put_resp_header(
@@ -75,7 +87,8 @@ defmodule MusicPlatformApiWeb.StreamController do
         "attachment; filename=\"#{encoded_filename}\"; filename*=UTF-8''#{encoded_filename}"
       )
       |> put_resp_header("content-type", "audio/mpeg")
-      |> send_file(200, track.file_path)
+      |> put_resp_header("content-length", to_string(byte_size(tagged_audio)))
+      |> send_resp(200, tagged_audio)
     else
       conn |> put_status(:not_found) |> json(%{error: "Файл не найден"})
     end

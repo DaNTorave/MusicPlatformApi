@@ -54,7 +54,7 @@ defmodule MusicPlatformApiWeb.ModerationController do
             preload: [
               :creator,
               :artist,
-              tracks: ^from(t in Track, order_by: [asc: t.id], preload: [:collaborators, original_track: [:artist]])
+              tracks: ^from(t in Track, order_by: [asc: t.position, asc: t.id], preload: [:collaborators, original_track: [:artist]])
             ]
         )
         |> Enum.map(fn a ->
@@ -67,6 +67,8 @@ defmodule MusicPlatformApiWeb.ModerationController do
               is_single: t.is_single,
               status: t.status,
               is_cover: t.is_cover,
+              position: t.position,
+              release_year: t.release_year,
               original_track_id: t.original_track_id,
               original_track: format_original_track.(t.original_track),
               collaborators: Enum.map(t.collaborators || [], &%{id: &1.id, name: &1.name})
@@ -174,10 +176,26 @@ defmodule MusicPlatformApiWeb.ModerationController do
           update_attrs
         end
 
-        update_attrs = case Map.get(params, "cover") do
+        update_attrs =
+          if Map.has_key?(params, "release_year") do
+            yr = Music.parse_int(params["release_year"])
+            Map.put(update_attrs, :release_year, if(yr > 0, do: yr, else: nil))
+          else
+            update_attrs
+          end
+
+        update_attrs =
+        case Map.get(params, "cover") do
           %Plug.Upload{} = upload ->
-            {:ok, url, _path} = Music.save_upload(upload, "covers")
-            Map.put(update_attrs, :cover, url)
+            folder = if schema == Artist, do: "avatars", else: "covers"
+            {:ok, url, _path} = Music.save_upload(upload, folder)
+
+            if schema == Artist do
+              Map.put(update_attrs, :avatar, url)
+            else
+              Map.put(update_attrs, :cover, url)
+            end
+
           _ ->
             update_attrs
         end
@@ -197,10 +215,12 @@ defmodule MusicPlatformApiWeb.ModerationController do
           if schema == Track do
             is_cover = Music.parse_boolean(Map.get(params, "is_cover"))
             orig_id = if is_cover, do: Music.parse_nullable_id(Map.get(params, "original_track_id")), else: nil
+            pos = Music.parse_int(Map.get(params, "position"))
 
             update_attrs
             |> Map.put(:is_cover, is_cover)
             |> Map.put(:original_track_id, orig_id)
+            |> Map.put(:position, if(pos > 0, do: pos, else: 1))
           else
             update_attrs
           end
@@ -218,10 +238,20 @@ defmodule MusicPlatformApiWeb.ModerationController do
             from(t in Track, where: t.album_id == ^item.id and t.id not in ^submitted_track_ids)
             |> Repo.delete_all()
 
-            Enum.each(tracks_params, fn {_idx, t_param} ->
+            Enum.each(tracks_params, fn {idx, t_param} ->
               track_id = t_param["id"]
               t_is_cover = Music.parse_boolean(Map.get(t_param, "is_cover"))
               t_orig_id = if t_is_cover, do: Music.parse_nullable_id(Map.get(t_param, "original_track_id")), else: nil
+
+              fallback_pos = case Integer.parse(to_string(idx)) do
+                {num, _} -> num + 1
+                _ -> 1
+              end
+              pos_in_param = Music.parse_int(t_param["position"])
+              t_pos = if pos_in_param > 0, do: pos_in_param, else: fallback_pos
+
+              t_year_val = Music.parse_int(t_param["release_year"])
+              t_year = if t_year_val > 0, do: t_year_val, else: Map.get(update_attrs, :release_year, item.release_year)
 
               if track_id && track_id != "" do
                 track = Repo.get(Track, track_id)
@@ -231,7 +261,9 @@ defmodule MusicPlatformApiWeb.ModerationController do
                     status: "approved",
                     moderation_comment: "Одобрено модератором",
                     is_cover: t_is_cover,
-                    original_track_id: t_orig_id
+                    original_track_id: t_orig_id,
+                    position: t_pos,
+                    release_year: t_year
                   }
                   t_attrs = if t_param["title"], do: Map.put(t_attrs, :title, t_param["title"]), else: t_attrs
 
@@ -267,7 +299,9 @@ defmodule MusicPlatformApiWeb.ModerationController do
                     "creator_id" => item.creator_id,
                     "is_single" => false,
                     "is_cover" => t_is_cover,
-                    "original_track_id" => t_orig_id
+                    "original_track_id" => t_orig_id,
+                    "position" => t_pos,
+                    "release_year" => t_year
                   })
                   |> Track.moderation_changeset(%{status: "approved", moderation_comment: "Одобрено модератором"})
                   |> Repo.insert!()
