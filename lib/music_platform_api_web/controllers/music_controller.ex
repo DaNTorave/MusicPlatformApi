@@ -202,7 +202,8 @@ defmodule MusicPlatformApiWeb.MusicController do
           cover: Track.resolve_cover(t),
           artist: if(t.artist, do: %{id: t.artist.id, name: t.artist.name}, else: nil),
           collaborators: Enum.map(t.collaborators || [], &%{id: &1.id, name: &1.name}),
-          album_id: t.album_id
+          album_id: t.album_id,
+          age_restriction: t.age_restriction
         }
       end)
 

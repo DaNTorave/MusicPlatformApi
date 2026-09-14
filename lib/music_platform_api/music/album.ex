@@ -32,6 +32,13 @@ end
 
 defimpl Jason.Encoder, for: MusicPlatformApi.Music.Album do
   def encode(album, opts) do
+    has_age_restriction =
+      case album.tracks do
+        %Ecto.Association.NotLoaded{} -> false
+        tracks when is_list(tracks) -> Enum.any?(tracks, & &1.age_restriction)
+        _ -> false
+      end
+
     base = %{
       id: album.id,
       title: album.title,
@@ -42,6 +49,7 @@ defimpl Jason.Encoder, for: MusicPlatformApi.Music.Album do
       moderation_comment: album.moderation_comment,
       artist_id: album.artist_id,
       creator_id: album.creator_id,
+      has_age_restriction: has_age_restriction,
       inserted_at: album.inserted_at,
       updated_at: album.updated_at
     }

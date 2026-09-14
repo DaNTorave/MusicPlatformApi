@@ -15,6 +15,7 @@ defmodule MusicPlatformApi.Music.Track do
     field :position, :integer, default: 1
     field :status, :string, default: "pending"
     field :moderation_comment, :string
+    field :age_restriction, :boolean, default: false
 
     field :is_cover, :boolean, default: false
 
@@ -90,6 +91,7 @@ defmodule MusicPlatformApi.Music.Track do
         creator_id: track.creator_id,
         is_cover: track.is_cover,
         original_track_id: track.original_track_id,
+        age_restriction: track.age_restriction,
         inserted_at: track.inserted_at,
         updated_at: track.updated_at
       }
