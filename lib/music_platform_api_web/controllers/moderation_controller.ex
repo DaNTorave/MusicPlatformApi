@@ -71,7 +71,8 @@ defmodule MusicPlatformApiWeb.ModerationController do
               release_year: t.release_year,
               original_track_id: t.original_track_id,
               original_track: format_original_track.(t.original_track),
-              collaborators: Enum.map(t.collaborators || [], &%{id: &1.id, name: &1.name})
+              collaborators: Enum.map(t.collaborators || [], &%{id: &1.id, name: &1.name}),
+              age_restriction: t.age_restriction
             }
           end)
 
@@ -99,6 +100,7 @@ defmodule MusicPlatformApiWeb.ModerationController do
           |> Map.put(:artist_info, format_artist.(t.artist))
           |> Map.put(:original_track, format_original_track.(t.original_track))
           |> Map.put(:collaborators, Enum.map(t.collaborators || [], &%{id: &1.id, name: &1.name}))
+          |> Map.put(:age_restriction, t.age_restriction)
         end)
 
       json(conn, %{items: artists ++ albums ++ tracks})
@@ -224,11 +226,13 @@ defmodule MusicPlatformApiWeb.ModerationController do
             is_cover = Music.parse_boolean(Map.get(params, "is_cover"))
             orig_id = if is_cover, do: Music.parse_nullable_id(Map.get(params, "original_track_id")), else: nil
             pos = Music.parse_int(Map.get(params, "position"))
+            age_restriction = Music.parse_boolean(Map.get(params, "age_restriction"))
 
             update_attrs
             |> Map.put(:is_cover, is_cover)
             |> Map.put(:original_track_id, orig_id)
             |> Map.put(:position, if(pos > 0, do: pos, else: 1))
+            |> Map.put(:age_restriction, age_restriction)
           else
             update_attrs
           end
@@ -257,6 +261,7 @@ defmodule MusicPlatformApiWeb.ModerationController do
               track_id = t_param["id"]
               t_is_cover = Music.parse_boolean(Map.get(t_param, "is_cover"))
               t_orig_id = if t_is_cover, do: Music.parse_nullable_id(Map.get(t_param, "original_track_id")), else: nil
+              t_age = Music.parse_boolean(Map.get(t_param, "age_restriction"))
 
               fallback_pos = case Integer.parse(to_string(idx)) do
                 {num, _} -> num + 1
@@ -278,7 +283,8 @@ defmodule MusicPlatformApiWeb.ModerationController do
                     is_cover: t_is_cover,
                     original_track_id: t_orig_id,
                     position: t_pos,
-                    release_year: t_year
+                    release_year: t_year,
+                    age_restriction: t_age
                   }
                   t_attrs = if t_param["title"], do: Map.put(t_attrs, :title, t_param["title"]), else: t_attrs
 
@@ -321,7 +327,8 @@ defmodule MusicPlatformApiWeb.ModerationController do
                     "is_cover" => t_is_cover,
                     "original_track_id" => t_orig_id,
                     "position" => t_pos,
-                    "release_year" => t_year
+                    "release_year" => t_year,
+                    "age_restriction" => t_age
                   })
                   |> Track.moderation_changeset(%{status: "approved", moderation_comment: "Одобрено модератором"})
                   |> Repo.insert!()

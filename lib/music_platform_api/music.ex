@@ -47,6 +47,7 @@ defmodule MusicPlatformApi.Music do
             duration = parse_int(Map.get(track_params, "duration_seconds"))
             is_cover = parse_boolean(Map.get(track_params, "is_cover"))
             orig_track_id = parse_nullable_id(Map.get(track_params, "original_track_id"))
+            age_restriction = parse_boolean(Map.get(track_params, "age_restriction"))
 
             pos_val = parse_int(Map.get(track_params, "position"))
             position = if pos_val > 0, do: pos_val, else: fallback_index
@@ -65,6 +66,7 @@ defmodule MusicPlatformApi.Music do
               |> Map.put("original_track_id", orig_track_id)
               |> Map.put("position", position)
               |> Map.put("release_year", release_year)
+              |> Map.put("age_restriction", age_restriction)
 
             track =
               %Track{}
@@ -95,6 +97,7 @@ defmodule MusicPlatformApi.Music do
     is_cover = parse_boolean(Map.get(attrs, "is_cover"))
     orig_track_id = parse_nullable_id(Map.get(attrs, "original_track_id"))
     year = parse_int(Map.get(attrs, "release_year"))
+    age_restriction = parse_boolean(Map.get(attrs, "age_restriction"))
 
     attrs =
       attrs
@@ -106,6 +109,7 @@ defmodule MusicPlatformApi.Music do
       |> Map.put("original_track_id", orig_track_id)
       |> Map.put("position", 1)
       |> Map.put("release_year", if(year > 0, do: year, else: nil))
+      |> Map.put("age_restriction", age_restriction)
 
     %Track{}
     |> Track.changeset(attrs)

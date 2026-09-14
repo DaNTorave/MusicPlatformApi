@@ -48,14 +48,24 @@ defmodule MusicPlatformApi.Music.Track do
       :is_cover,
       :original_track_id,
       :release_year,
-      :position
+      :position,
+      :age_restriction
     ])
     |> validate_required([:title, :audio_uuid, :file_path, :artist_id, :creator_id])
   end
 
   def moderation_changeset(track, attrs) do
     track
-    |> cast(attrs, [:status, :moderation_comment, :is_cover, :original_track_id, :title, :release_year, :position])
+    |> cast(attrs, [
+      :status,
+      :moderation_comment,
+      :is_cover,
+      :original_track_id,
+      :title,
+      :release_year,
+      :position,
+      :age_restriction
+    ])
     |> validate_inclusion(:status, ["pending", "approved", "rejected"])
   end
 
