@@ -20,6 +20,7 @@ defmodule MusicPlatformApiWeb.StreamController do
     end
   end
 
+  # Отправляет аудиофайл с учетом HTTP-заголовка Range для перемотки в плеере.
   defp send_audio_stream(conn, path, file_size) do
     case get_req_header(conn, "range") do
       ["bytes=" <> range_spec] ->
@@ -37,6 +38,7 @@ defmodule MusicPlatformApiWeb.StreamController do
         {:ok, data} = :file.pread(file, start_byte, length)
         :file.close(file)
 
+        # Возврат контента по частям (Статус 206)
         conn
         |> put_resp_header("content-range", "bytes #{start_byte}-#{end_byte}/#{file_size}")
         |> put_resp_header("accept-ranges", "bytes")
@@ -45,6 +47,7 @@ defmodule MusicPlatformApiWeb.StreamController do
         |> send_resp(206, data)
 
       _ ->
+        # Возврат полностью
         conn
         |> put_resp_header("content-type", "audio/mpeg")
         |> put_resp_header("content-length", to_string(file_size))
@@ -60,6 +63,7 @@ defmodule MusicPlatformApiWeb.StreamController do
       |> Repo.preload([:artist, :album])
 
     if File.exists?(track.file_path) do
+      # Подготовка метаданных
       artist_name = if track.artist, do: track.artist.name, else: "Неизвестный исполнитель"
       track_title = track.title || "Без названия"
       album_title = if track.album, do: track.album.title, else: ""
@@ -69,6 +73,7 @@ defmodule MusicPlatformApiWeb.StreamController do
 
       original_bytes = File.read!(track.file_path)
 
+      # Вставка метаданных
       tagged_audio =
         ID3.inject_tags(original_bytes, %{
           title: track_title,
@@ -78,6 +83,7 @@ defmodule MusicPlatformApiWeb.StreamController do
           year: year_str
         })
 
+      # Форматирование имени файла
       clean_name = String.replace("#{artist_name} — #{track_title}", ~r/[\\\/:\*\?"<>\|]/u, "")
       encoded_filename = URI.encode("#{clean_name}.mp3")
 

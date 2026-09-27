@@ -1,19 +1,22 @@
 defmodule MusicPlatformApi.Token do
-  @secret System.get_env("SECRET_TOKEN") || "your-secret-key-for-development-only"
+  @secret System.get_env("SECRET_TOKEN") || "your-secret-key"
 
+  # Генерация токена
   def generate_token(claims) do
     try do
       claims_with_defaults = Map.merge(%{
-        "iat" => System.system_time(:second),
-        "exp" => System.system_time(:second) + 86400,
+        "iat" => System.system_time(:second), # Когда появился
+        "exp" => System.system_time(:second) + 86400, # Срок действия
         "user_id" => nil
       }, claims)
 
+      # Исключение пустых ключей
       clean_claims =
         claims_with_defaults
         |> Enum.filter(fn {_key, value} -> not is_nil(value) end)
         |> Map.new()
 
+      # Проверка на айдишник
       if not Map.has_key?(clean_claims, "user_id") do
         raise "user_id is missing in claims"
       end
@@ -36,6 +39,7 @@ defmodule MusicPlatformApi.Token do
     end
   end
 
+  # Проверка валидности и срока токена
   def verify_token(token) do
     try do
       case String.split(token, ".") do
@@ -43,9 +47,11 @@ defmodule MusicPlatformApi.Token do
           signature_data = header_encoded <> "." <> claims_encoded
           expected_signature = :crypto.mac(:hmac, :sha256, @secret, signature_data) |> base64url_encode()
 
+          # Проверка подписи
           if signature_encoded == expected_signature do
             claims = claims_encoded |> base64url_decode() |> Jason.decode!()
 
+            # Проверка жизни токена
             case claims do
               %{"exp" => exp} when is_integer(exp) ->
                 if exp < System.system_time(:second) do

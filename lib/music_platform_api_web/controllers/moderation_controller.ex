@@ -4,10 +4,13 @@ defmodule MusicPlatformApiWeb.ModerationController do
   alias MusicPlatformApi.{Auth, Repo, Music}
   alias MusicPlatformApi.Music.{Artist, Album, Track}
 
+  # Список на модерацию
   def pending_list(conn, _params) do
+    # Проверка авторизации и прав доступа
     with ["Bearer " <> token] <- get_req_header(conn, "authorization"),
          user when not is_nil(user) and user.role in ["admin", "moderator"] <- Auth.get_user_from_token(token) do
 
+      # Форматирование входных данных, чтоб без лишней информации
       format_creator = fn creator ->
         if creator do
           %{id: creator.id, login: creator.login, nickname: creator.nickname}
@@ -37,6 +40,7 @@ defmodule MusicPlatformApiWeb.ModerationController do
         end
       end
 
+      # Подгрузка артистов на модерации
       artists =
         Repo.all(from a in Artist, where: a.status == "pending", preload: [:creator])
         |> Enum.map(fn a ->
@@ -47,6 +51,7 @@ defmodule MusicPlatformApiWeb.ModerationController do
           |> Map.put(:creator_info, format_creator.(a.creator))
         end)
 
+      # Альбомы
       albums =
         Repo.all(
           from a in Album,
@@ -85,6 +90,7 @@ defmodule MusicPlatformApiWeb.ModerationController do
           |> Map.put(:artist_info, format_artist.(a.artist))
         end)
 
+      # Синглы
       tracks =
         Repo.all(
           from t in Track,
@@ -103,16 +109,20 @@ defmodule MusicPlatformApiWeb.ModerationController do
           |> Map.put(:age_restriction, t.age_restriction)
         end)
 
+      # Объединение в один список
       json(conn, %{items: artists ++ albums ++ tracks})
     else
       _ -> conn |> put_status(:forbidden) |> json(%{error: "Доступ запрещен"})
     end
   end
 
+  # Принятие решения
   def make_decision(conn, %{"schema" => schema_str, "id" => id, "status" => status} = params) do
+    # Проверка авторизации и прав доступа
     with ["Bearer " <> token] <- get_req_header(conn, "authorization"),
          user when not is_nil(user) and user.role in ["admin", "moderator"] <- Auth.get_user_from_token(token) do
 
+      # Определение типа
       schema =
         case String.downcase(to_string(schema_str)) do
           "artist" -> Artist
@@ -125,6 +135,7 @@ defmodule MusicPlatformApiWeb.ModerationController do
       if schema do
         comment = Map.get(params, "comment", "")
 
+        # Обновление статуса в контексте
         case Music.moderate_item(schema, id, status, comment) do
           {:ok, item} ->
             json(conn, %{success: true, item: item})
@@ -144,10 +155,12 @@ defmodule MusicPlatformApiWeb.ModerationController do
     end
   end
 
+  # Если пришёл шлак
   def make_decision(conn, _params) do
     conn |> put_status(:bad_request) |> json(%{error: "Отсутствуют обязательные параметры (schema, id, status)"})
   end
 
+  # Одобрение с внесёнными изменениями в параметры
   def approve_with_edit(conn, %{"schema" => schema_str} = params) do
     with ["Bearer " <> token] <- get_req_header(conn, "authorization"),
          user when not is_nil(user) and user.role in ["admin", "moderator"] <- Auth.get_user_from_token(token) do
@@ -166,7 +179,9 @@ defmodule MusicPlatformApiWeb.ModerationController do
         item_id = if is_binary(params["id"]), do: String.to_integer(params["id"]), else: params["id"]
         item = Repo.get!(schema, item_id)
 
+        # Базовые атрибуты при одобрении
         update_attrs = %{status: "approved", moderation_comment: "Одобрено модератором"}
+
 
         update_attrs = if Map.has_key?(params, "title") and params["title"] != "" do
           if schema == Artist do
@@ -178,6 +193,7 @@ defmodule MusicPlatformApiWeb.ModerationController do
           update_attrs
         end
 
+        # Год релиза
         update_attrs =
           if Map.has_key?(params, "release_year") do
             yr = Music.parse_int(params["release_year"])
@@ -186,6 +202,7 @@ defmodule MusicPlatformApiWeb.ModerationController do
             update_attrs
           end
 
+        # Редакт аватарки артиста или обложки трека
         update_attrs =
           case Map.get(params, "cover") do
             %Plug.Upload{} = upload ->
@@ -205,6 +222,7 @@ defmodule MusicPlatformApiWeb.ModerationController do
               update_attrs
           end
 
+        # Редакт медиафайла для одиночного трека
         update_attrs =
           case {schema, Map.get(params, "audio")} do
             {Track, %Plug.Upload{} = upload} ->
@@ -221,6 +239,7 @@ defmodule MusicPlatformApiWeb.ModerationController do
               update_attrs
           end
 
+        # Особые параметры трека
         update_attrs =
           if schema == Track do
             is_cover = Music.parse_boolean(Map.get(params, "is_cover"))
@@ -237,16 +256,19 @@ defmodule MusicPlatformApiWeb.ModerationController do
             update_attrs
           end
 
+        # Синхронизация и обновление
         Repo.transaction(fn ->
           if schema == Album do
             tracks_params = Map.get(params, "tracks", %{})
 
+            # Сборка айдишников для оставленных треков
             submitted_track_ids =
               tracks_params
               |> Enum.map(fn {_k, v} -> v["id"] end)
               |> Enum.reject(&is_nil/1)
               |> Enum.map(fn id -> if is_binary(id), do: String.to_integer(id), else: id end)
 
+            # Удаление убранных из альбома треков
             tracks_to_delete =
               from(t in Track, where: t.album_id == ^item.id and t.id not in ^submitted_track_ids)
               |> Repo.all()
@@ -257,6 +279,7 @@ defmodule MusicPlatformApiWeb.ModerationController do
               Repo.delete!(trk)
             end)
 
+            # Обновление или создание треков в альбоме
             Enum.each(tracks_params, fn {idx, t_param} ->
               track_id = t_param["id"]
               t_is_cover = Music.parse_boolean(Map.get(t_param, "is_cover"))
@@ -336,11 +359,13 @@ defmodule MusicPlatformApiWeb.ModerationController do
               end
             end)
 
+            # Подтверждение треков в альбоме
             from(t in Track, where: t.album_id == ^item.id)
             |> Repo.update_all(set: [status: "approved", moderation_comment: "Одобрено модератором"])
           end
 
           raw_collabs = Map.get(params, "collaborator_ids") || Map.get(params, "collaborator_ids[]")
+
           if raw_collabs do
             collab_ids =
               case raw_collabs do
@@ -371,6 +396,7 @@ defmodule MusicPlatformApiWeb.ModerationController do
             end
           end
 
+          # Применение изменений
           changeset =
             item
             |> schema.moderation_changeset(%{status: "approved", moderation_comment: "Одобрено модератором"})

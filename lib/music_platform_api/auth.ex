@@ -2,6 +2,7 @@ defmodule MusicPlatformApi.Auth do
   alias MusicPlatformApi.{Repo, User, Token}
   import Ecto.Query
 
+  # Генерация ников
   defp generate_random_nickname do
     adjectives = ["cool", "happy", "brave", "smart", "lucky", "wild", "free", "bold", "calm", "swift"]
     nouns = ["panda", "tiger", "eagle", "wolf", "fox", "bear", "lion", "hawk", "dove", "whale"]
@@ -13,7 +14,18 @@ defmodule MusicPlatformApi.Auth do
     "#{adjective}_#{noun}_#{number}"
   end
 
+  # Поиск по логину или почте
+  defp get_user_by_login_or_email(login_or_email) do
+    query = from u in User,
+            where: u.login == ^login_or_email or u.email == ^login_or_email,
+            limit: 1
+
+    Repo.one(query)
+  end
+
+  # Регистрация
   def register_user(attrs) do
+    # Если ник пустой - вызывает генерацию
     nickname = Map.get(attrs, "nickname")
     attrs =
       if is_nil(nickname) || String.trim(nickname) == "" do
@@ -22,11 +34,13 @@ defmodule MusicPlatformApi.Auth do
         attrs
       end
 
+    # Перекидывает в user.ex для валидации и хеширования пароля и пытается сделать INSERT в БД
     case %User{}
-         |> User.registration_changeset(attrs)
-         |> Repo.insert() do
+      |> User.registration_changeset(attrs)
+      |> Repo.insert() do
       {:ok, user} ->
         loaded_user =
+          # Если айдишник не пришёл с Repo.insert, то получение айди через логин
           if is_nil(user.id) do
             case Repo.get_by(User, login: user.login) do
               nil -> user
@@ -36,6 +50,7 @@ defmodule MusicPlatformApi.Auth do
             user
           end
 
+        # Ответ уникальным сгенерированным токеном
         case MusicPlatformApi.Auth.generate_token(loaded_user) do
           {:ok, token} ->
             {:ok, loaded_user, token}
@@ -49,6 +64,7 @@ defmodule MusicPlatformApi.Auth do
     end
   end
 
+  # Аунтетификация по логину или паролю
   def authenticate(login_or_email, password) do
     user = get_user_by_login_or_email(login_or_email)
 
@@ -63,6 +79,7 @@ defmodule MusicPlatformApi.Auth do
     end
   end
 
+  # Генерация 90 дневного токена
   def generate_token(user) do
     user_id = user.id
 
@@ -74,7 +91,7 @@ defmodule MusicPlatformApi.Auth do
         "login" => user.login,
         "email" => user.email,
         "nickname" => user.nickname || "",
-        "exp" => System.system_time(:second) + 86400
+        "exp" => System.system_time(:second) + 86400 * 90
       }
 
       IO.inspect(claims, label: "Claims being generated")
@@ -88,6 +105,7 @@ defmodule MusicPlatformApi.Auth do
     end
   end
 
+  # Проверка токена на валидность и срок действия
   def verify_token(token) do
     case Token.verify_token(token) do
       {:ok, claims} ->
@@ -97,12 +115,16 @@ defmodule MusicPlatformApi.Auth do
     end
   end
 
+  # Извлечение юзера из бд по токену
   def get_user_from_token(token) do
     case verify_token(token) do
       {:ok, claims} ->
         case claims do
+          # Если айдишник числовой
           %{"user_id" => user_id} when is_integer(user_id) ->
             Repo.get(User, user_id)
+
+          # Если айдишник строкой
           %{"user_id" => user_id} when is_binary(user_id) ->
             case Integer.parse(user_id) do
               {int_id, ""} -> Repo.get(User, int_id)
@@ -115,33 +137,12 @@ defmodule MusicPlatformApi.Auth do
     end
   end
 
-  defp get_user_by_login_or_email(login_or_email) do
-    query = from u in User,
-            where: u.login == ^login_or_email or u.email == ^login_or_email,
-            limit: 1
-
-    Repo.one(query)
-  end
-
-  def update_user(%User{} = user, attrs) do
-    user
-    |> User.update_changeset(attrs)
-    |> Repo.update()
-  end
-
-  def update_password(%User{} = user, new_password) do
-    changeset =
-      user
-      |> Ecto.Changeset.cast(%{password: new_password}, [:password])
-      |> User.put_password_hash()
-
-    Repo.update(changeset)
-  end
-
+  # Получение юзера из числового айдишника
   def get_user(id) when is_integer(id) do
     Repo.get(User, id)
   end
 
+  # Получение из строкового
   def get_user(id) when is_binary(id) do
     case Integer.parse(id) do
       {int_id, ""} -> Repo.get(User, int_id)
@@ -149,8 +150,10 @@ defmodule MusicPlatformApi.Auth do
     end
   end
 
+  # Fallback для невалидных
   def get_user(_), do: nil
 
+  # Получения юзера по логину, почте, нику
   def get_user_by_login(login) do
     Repo.get_by(User, login: login)
   end
@@ -163,10 +166,24 @@ defmodule MusicPlatformApi.Auth do
     Repo.get_by(User, nickname: nickname)
   end
 
-  def check_password(user, password) do
-    User.valid_password?(user, password)
+  # Обновление разрешённых атрибутов пользователя
+  def update_user(%User{} = user, attrs) do
+    user
+    |> User.update_changeset(attrs)
+    |> Repo.update()
   end
 
+  # Хеширование и обновление пароля в БД
+  def update_password(%User{} = user, new_password) do
+    changeset =
+      user
+      |> Ecto.Changeset.cast(%{password: new_password}, [:password])
+      |> User.put_password_hash()
+
+    Repo.update(changeset)
+  end
+
+  # Обновление никнейма с валидациями
   def update_nickname(user, new_nickname) do
     new_nickname = String.trim(new_nickname)
 
@@ -187,6 +204,12 @@ defmodule MusicPlatformApi.Auth do
     end
   end
 
+
+  def check_password(user, password) do
+    User.valid_password?(user, password)
+  end
+
+  # Смена пароля с подтверждением старого
   def change_password(%User{} = user, current_password, new_password, new_password_confirmation) do
     cond do
       !User.valid_password?(user, current_password) -> {:error, :invalid_current_password}
@@ -195,11 +218,14 @@ defmodule MusicPlatformApi.Auth do
     end
   end
 
+  # Запрос на смену забытого пароля
   def request_password_reset(email) do
+    # Запрос юзера по почте
     case get_user_by_email(email) do
       nil ->
         {:error, :not_found}
 
+      # Генерация 6 значного кода и временного ресет_токена для востановления пароля
       user ->
         code = :rand.uniform(900_000) + 99_999 |> Integer.to_string()
 
@@ -207,7 +233,7 @@ defmodule MusicPlatformApi.Auth do
           "user_id" => user.id,
           "reset_code" => code,
           "purpose" => "reset_password",
-          "exp" => System.system_time(:second) + 900
+          "exp" => System.system_time(:second) + 300
         }
 
         case Token.generate_token(claims) do
@@ -220,6 +246,7 @@ defmodule MusicPlatformApi.Auth do
     end
   end
 
+  # Проверка подтверждения нового пароля и проверка ресет_токена
   def reset_password(reset_token, code, new_password, new_password_confirmation) do
     cond do
       new_password != new_password_confirmation ->

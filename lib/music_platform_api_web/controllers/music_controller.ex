@@ -13,6 +13,7 @@ defmodule MusicPlatformApiWeb.MusicController do
     end
   end
 
+  # Показ страницы артиста
   def get_artist(conn, %{"id" => id}) do
     case Music.get_artist_page(id) do
       {:ok, data} -> json(conn, %{success: true, data: data})
@@ -20,11 +21,13 @@ defmodule MusicPlatformApiWeb.MusicController do
     end
   end
 
+  # Список артистов по популярности
   def list_artists(conn, _params) do
     artists = Repo.all(from a in Artist, where: a.status == "approved", order_by: [desc: a.plays_count, desc: a.inserted_at])
     json(conn, %{success: true, data: artists})
   end
 
+  # Создание профиля артиста
   def create_artist(conn, params) do
     with {:ok, user} <- authenticate_user(conn) do
       params =
@@ -44,6 +47,7 @@ defmodule MusicPlatformApiWeb.MusicController do
     end
   end
 
+  # Создание сингла, включает файл, связь с соавторами
   def create_single(conn, params) do
     with {:ok, user} <- authenticate_user(conn) do
       params =
@@ -53,7 +57,9 @@ defmodule MusicPlatformApiWeb.MusicController do
 
       case Music.create_single(params, user.id) do
         {:ok, track} ->
+          # Привязка соавторов через many-to-many
           raw_collabs = Map.get(params, "collaborator_ids") || Map.get(params, "collaborator_ids[]")
+
           if raw_collabs do
             ids = if is_list(raw_collabs), do: raw_collabs, else: [raw_collabs]
             artists = Repo.all(from a in Artist, where: a.id in ^ids)
@@ -75,10 +81,13 @@ defmodule MusicPlatformApiWeb.MusicController do
     end
   end
 
+
   def create_album(conn, params) do
     with {:ok, user} <- authenticate_user(conn) do
+      # Сохранение обложки альбома
       params = maybe_save_file(params, "cover", "covers")
 
+      # Обход списка треков и сохранение медиафайлов для них
       tracks_params =
         params
         |> Map.get("tracks", %{})
@@ -103,6 +112,7 @@ defmodule MusicPlatformApiWeb.MusicController do
     end
   end
 
+  # Удаление трека полностью
   def delete_track(conn, %{"id" => id}) do
     track = Repo.get!(Track, id)
 
@@ -118,6 +128,7 @@ defmodule MusicPlatformApiWeb.MusicController do
     end
   end
 
+  # Удаление альбома полностью
   def delete_album(conn, %{"id" => id}) do
     album = Repo.get!(Album, id) |> Repo.preload(:tracks)
 
@@ -137,6 +148,7 @@ defmodule MusicPlatformApiWeb.MusicController do
     end
   end
 
+  # Удаление артиста полностью
   def delete_artist(conn, %{"id" => id}) do
     artist =
       Artist
@@ -183,6 +195,7 @@ defmodule MusicPlatformApiWeb.MusicController do
     end
   end
 
+  # Топ 100 треков по прослушиваниям
   def top_tracks(conn, _params) do
     tracks =
       Repo.all(
@@ -210,6 +223,7 @@ defmodule MusicPlatformApiWeb.MusicController do
     json(conn, %{success: true, data: tracks})
   end
 
+  # Топ 10 артистов по прослушиванию на их треках
   def top_artists(conn, _params) do
     artists =
       Repo.all(
@@ -222,6 +236,7 @@ defmodule MusicPlatformApiWeb.MusicController do
     json(conn, %{success: true, data: artists})
   end
 
+  # Получить трек
   def get_track(conn, %{"id" => id}) do
     track =
       MusicPlatformApi.Music.Track
