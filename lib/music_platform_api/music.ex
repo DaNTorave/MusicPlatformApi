@@ -166,7 +166,7 @@ defmodule MusicPlatformApi.Music do
       case schema do
         Artist -> "Исполнитель \"#{item.name}\""
         Album -> "Альбом \"#{item.title}\""
-        Track -> "Трек/Сингл \"#{item.title}\""
+        Track -> "Сингл \"#{item.title}\""
       end
 
     {title, type, message} =
