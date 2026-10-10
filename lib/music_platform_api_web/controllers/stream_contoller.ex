@@ -71,16 +71,20 @@ defmodule MusicPlatformApiWeb.StreamController do
       pos_str = to_string(track.position || 1)
       year_str = if track.release_year, do: to_string(track.release_year), else: ""
 
+      # Поиск и чтение файла обложки с диска
+      cover_bytes = load_track_cover(track)
+
       original_bytes = File.read!(track.file_path)
 
-      # Вставка метаданных
+      # Вставка метаданных и обложки в MP3
       tagged_audio =
         ID3.inject_tags(original_bytes, %{
           title: track_title,
           artist: artist_name,
           album: album_title,
           track: pos_str,
-          year: year_str
+          year: year_str,
+          cover: cover_bytes
         })
 
       # Форматирование имени файла
@@ -97,6 +101,60 @@ defmodule MusicPlatformApiWeb.StreamController do
       |> send_resp(200, tagged_audio)
     else
       conn |> put_status(:not_found) |> json(%{error: "Файл не найден"})
+    end
+  end
+
+  # Загрузка бинарных данных обложки (приоритет: трек -> альбом -> артист)
+  defp load_track_cover(track) do
+    cover_url =
+      cond do
+        is_binary(track.cover) and String.trim(track.cover) != "" ->
+          track.cover
+
+        is_map(track.album) and is_binary(track.album.cover) and String.trim(track.album.cover) != "" ->
+          track.album.cover
+
+        is_map(track.artist) and is_binary(track.artist.avatar) and String.trim(track.artist.avatar) != "" ->
+          track.artist.avatar
+
+        true ->
+          nil
+      end
+
+    case resolve_disk_path(cover_url) do
+      {:ok, path} ->
+        case File.read(path) do
+          {:ok, binary} -> binary
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  # Поиск физического файла на диске по относительному или статическому URL
+  defp resolve_disk_path(nil), do: :error
+  defp resolve_disk_path(""), do: :error
+  defp resolve_disk_path(url_or_path) do
+    clean_path = String.replace_leading(url_or_path, "/", "")
+
+    candidates = [
+      url_or_path,
+      clean_path,
+      Path.join("priv/static", clean_path),
+      Path.expand(Path.join("priv/static", clean_path)),
+      try do
+        Application.app_dir(:music_platform_api, Path.join("priv/static", clean_path))
+      rescue
+        _ -> nil
+      end
+    ]
+    |> Enum.reject(&is_nil/1)
+
+    case Enum.find(candidates, &File.exists?/1) do
+      nil -> :error
+      path -> {:ok, path}
     end
   end
 end
