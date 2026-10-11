@@ -54,6 +54,11 @@ defmodule MusicPlatformApiWeb.Router do
     post "/moderation/decision", ModerationController, :make_decision
     post "/moderation/approve-with-edit", ModerationController, :approve_with_edit
 
+    # Избранное
+    get "/favorites", MusicController, :list_favorites
+    get "/favorites/ids", MusicController, :favorite_ids
+    post "/favorites/toggle", MusicController, :toggle_favorite
+
   end
 
   # Enable LiveDashboard and Swoosh mailbox preview in development

@@ -3,6 +3,7 @@ defmodule MusicPlatformApi.Music do
   alias MusicPlatformApi.Repo
   alias MusicPlatformApi.Music.{Artist, Album, Track}
   alias MusicPlatformApi.Notifications.Notification
+  alias MusicPlatformApi.Music.FavoriteTrack
 
   # Сохранение файла на сервере
   def save_upload(%Plug.Upload{path: tmp_path, filename: filename}, subfolder) do
@@ -297,5 +298,51 @@ defmodule MusicPlatformApi.Music do
           :ok
       end
     end
+  end
+
+  # Переключение лайка (добавить и удалить) с обновлением счетчика likes_count
+  def toggle_favorite(user_id, track_id) do
+    case Repo.get_by(FavoriteTrack, user_id: user_id, track_id: track_id) do
+      nil ->
+        Repo.transaction(fn ->
+          %FavoriteTrack{}
+          |> FavoriteTrack.changeset(%{user_id: user_id, track_id: track_id})
+          |> Repo.insert!()
+
+          from(t in Track, where: t.id == ^track_id)
+          |> Repo.update_all(inc: [likes_count: 1])
+
+          :favorited
+        end)
+
+      fav ->
+        Repo.transaction(fn ->
+          Repo.delete!(fav)
+
+          from(t in Track, where: t.id == ^track_id)
+          |> Repo.update_all(inc: [likes_count: -1])
+
+          :unfavorited
+        end)
+    end
+  end
+
+  # Получение списка избранных треков пользователя
+  def list_user_favorites(user_id, limit \\ nil) do
+    query =
+      from t in Track,
+        join: f in FavoriteTrack, on: f.track_id == t.id,
+        where: f.user_id == ^user_id and t.status == "approved",
+        order_by: [desc: f.inserted_at],
+        preload: [:artist, :album, :collaborators, original_track: [:artist]]
+
+    query = if limit, do: from(q in query, limit: ^limit), else: query
+    Repo.all(query)
+  end
+
+  # Список ID избранных треков для подсветки активных сердечек на клиенте
+  def list_user_favorite_ids(user_id) do
+    from(f in FavoriteTrack, where: f.user_id == ^user_id, select: f.track_id)
+    |> Repo.all()
   end
 end

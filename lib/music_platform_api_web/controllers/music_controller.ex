@@ -253,4 +253,50 @@ defmodule MusicPlatformApiWeb.MusicController do
         json(conn, %{track: track})
     end
   end
+
+  # Список избранного с ограничением
+  def list_favorites(conn, params) do
+    with {:ok, user} <- authenticate_user(conn) do
+      limit =
+        case params["limit"] do
+          nil -> nil
+          val -> String.to_integer(val)
+        end
+
+      tracks = Music.list_user_favorites(user.id, limit)
+      json(conn, %{success: true, data: tracks})
+    else
+      {:error, :unauthorized} ->
+        conn |> put_status(:unauthorized) |> json(%{error: "Требуется авторизация"})
+    end
+  end
+
+  # Быстрого определение, добавлен ли трек
+  def favorite_ids(conn, _params) do
+    with {:ok, user} <- authenticate_user(conn) do
+      ids = Music.list_user_favorite_ids(user.id)
+      json(conn, %{success: true, data: ids})
+    else
+      {:error, :unauthorized} ->
+        conn |> put_status(:unauthorized) |> json(%{error: "Требуется авторизация"})
+    end
+  end
+
+  # Добавление и удаление трека из избранного
+  def toggle_favorite(conn, %{"track_id" => track_id}) do
+    with {:ok, user} <- authenticate_user(conn) do
+      track_id = if is_binary(track_id), do: String.to_integer(track_id), else: track_id
+
+      case Music.toggle_favorite(user.id, track_id) do
+        {:ok, status} ->
+          json(conn, %{success: true, status: status, is_favorite: status == :favorited})
+
+        {:error, reason} ->
+          conn |> put_status(:bad_request) |> json(%{error: inspect(reason)})
+      end
+    else
+      {:error, :unauthorized} ->
+        conn |> put_status(:unauthorized) |> json(%{error: "Требуется авторизация"})
+    end
+  end
 end
