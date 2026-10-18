@@ -8,15 +8,26 @@ defmodule MusicPlatformApiWeb.StreamController do
     track = Repo.get!(Track, id)
 
     if File.exists?(track.file_path) do
-      Task.start(fn ->
-        Ecto.Adapters.SQL.query(Repo, "UPDATE tracks SET plays_count = plays_count + 1 WHERE id = $1", [track.id])
-        Ecto.Adapters.SQL.query(Repo, "UPDATE artists SET plays_count = plays_count + 1 WHERE id = $1", [track.artist_id])
-      end)
+      if initial_stream_request?(conn) do
+        Task.start(fn ->
+          Ecto.Adapters.SQL.query(Repo, "UPDATE tracks SET plays_count = plays_count + 1 WHERE id = $1", [track.id])
+          Ecto.Adapters.SQL.query(Repo, "UPDATE artists SET plays_count = plays_count + 1 WHERE id = $1", [track.artist_id])
+        end)
+      end
 
       file_size = File.stat!(track.file_path).size
       send_audio_stream(conn, track.file_path, file_size)
     else
       conn |> put_status(:not_found) |> json(%{error: "Файл не найден на диске"})
+    end
+  end
+
+  # Проверка на первичный запрос потока
+  defp initial_stream_request?(conn) do
+    case get_req_header(conn, "range") do
+      ["bytes=0-" <> _] -> true
+      [] -> true
+      _ -> false
     end
   end
 

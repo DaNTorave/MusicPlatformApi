@@ -22,13 +22,13 @@ defmodule MusicPlatformApiWeb.Router do
     post "/reset-password/request", AuthController, :request_reset_password
     post "/reset-password/confirm", AuthController, :confirm_reset_password
 
-
     put "/update-nickname", AuthController, :update_nickname
 
-    # Музло
+    # Аудиопоток и скачивание
     get "/stream/:id", StreamController, :stream
     get "/download/:id", StreamController, :download
 
+    # Каталог и уведомления
     get "/artists", MusicController, :list_artists
     get "/artists/:id", MusicController, :get_artist
     get "/notifications", NotificationController, :index
@@ -59,15 +59,19 @@ defmodule MusicPlatformApiWeb.Router do
     get "/favorites/ids", MusicController, :favorite_ids
     post "/favorites/toggle", MusicController, :toggle_favorite
 
+    # Плейлисты
+    get "/playlists", MusicController, :list_my_playlists
+    get "/users/:id/playlists", MusicController, :list_user_playlists
+    get "/playlists/:id", MusicController, :get_playlist
+    post "/playlists", MusicController, :create_playlist
+    post "/playlists/:id/update", MusicController, :update_playlist
+    put "/playlists/:id", MusicController, :update_playlist
+    delete "/playlists/:id", MusicController, :delete_playlist
+    post "/playlists/:id/tracks", MusicController, :toggle_playlist_track
+    delete "/playlists/:id/tracks/:track_id", MusicController, :remove_playlist_track
   end
 
-  # Enable LiveDashboard and Swoosh mailbox preview in development
   if Application.compile_env(:music_platform_api, :dev_routes) do
-    # If you want to use the LiveDashboard in production, you should put
-    # it behind authentication and allow only admins to access it.
-    # If your application does not have an admins-only section yet,
-    # you can use Plug.BasicAuth to set up some basic authentication
-    # as long as you are also using SSL (which you should anyway).
     import Phoenix.LiveDashboard.Router
 
     scope "/dev" do

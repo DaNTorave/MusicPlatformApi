@@ -1,47 +1,37 @@
 defmodule MusicPlatformApi.Music do
   import Ecto.Query
   alias MusicPlatformApi.Repo
-  alias MusicPlatformApi.Music.{Artist, Album, Track}
+  alias MusicPlatformApi.Music.{Artist, Album, Track, FavoriteTrack, Playlist, PlaylistTrack}
   alias MusicPlatformApi.Notifications.Notification
-  alias MusicPlatformApi.Music.FavoriteTrack
 
   # Сохранение файла на сервере
   def save_upload(%Plug.Upload{path: tmp_path, filename: filename}, subfolder) do
-    # Извелечение расширения файла
     ext = Path.extname(filename)
-    # Генерация уникального названия файла
     unique_name = "#{Ecto.UUID.generate()}#{ext}"
 
-    # Куда сохранять
     dest_dir = Path.expand("priv/static/uploads/#{subfolder}")
-    # Создание папки, если нет
     File.mkdir_p!(dest_dir)
     dest_path = Path.join(dest_dir, unique_name)
-    # Копирование из временого plug в хранилище
     File.cp!(tmp_path, dest_path)
 
     {:ok, "/uploads/#{subfolder}/#{unique_name}", dest_path}
   end
 
-  # Создание в бд исполнителя
+  # Создание в БД исполнителя
   def create_artist(attrs, user_id) do
     %Artist{}
-    # Внедрение айдишника создателя
     |> Artist.changeset(Map.put(attrs, "creator_id", user_id))
     |> Repo.insert()
   end
 
   # Создание альбома с треками
   def create_album_with_tracks(%{"tracks" => tracks_params} = album_params, user_id) do
-    # На случай падения откат
     Repo.transaction(fn ->
-      # Если проблемы с годом релиза, то пустое значение
       album_year = parse_int(Map.get(album_params, "release_year"))
       album_params = Map.put(album_params, "release_year", if(album_year > 0, do: album_year, else: nil))
 
       album_changeset =
         %Album{}
-        # Опять внедрение айдишника
         |> Album.changeset(Map.put(album_params, "creator_id", user_id))
 
       case Repo.insert(album_changeset) do
@@ -49,7 +39,6 @@ defmodule MusicPlatformApi.Music do
           tracks_params
           |> Enum.with_index(1)
           |> Enum.each(fn {track_params, fallback_index} ->
-            # Приведение айдишников соавторов у трека к норме
             collab_ids =
               case Map.get(track_params, "collaborator_ids") do
                 ids when is_list(ids) -> ids
@@ -63,15 +52,12 @@ defmodule MusicPlatformApi.Music do
             orig_track_id = parse_nullable_id(Map.get(track_params, "original_track_id"))
             age_restriction = parse_boolean(Map.get(track_params, "age_restriction"))
 
-            # Положение в альбоме
             pos_val = parse_int(Map.get(track_params, "position"))
             position = if pos_val > 0, do: pos_val, else: fallback_index
 
-            # Год релиза
             track_year_val = parse_int(Map.get(track_params, "release_year"))
             release_year = if track_year_val > 0, do: track_year_val, else: album.release_year
 
-            # Связка с таблицей треков методом "многие ко многим"
             track_attrs =
               track_params
               |> Map.put("album_id", album.id)
@@ -90,14 +76,13 @@ defmodule MusicPlatformApi.Music do
               |> Track.changeset(track_attrs)
               |> Repo.insert!()
 
-            # Если с соавторами
             if collab_ids != [] do
               artists = Repo.all(from a in Artist, where: a.id in ^collab_ids)
 
               track
-              |> Repo.preload(:collaborators) # Загрузка действующей связи
+              |> Repo.preload(:collaborators)
               |> Ecto.Changeset.change()
-              |> Ecto.Changeset.put_assoc(:collaborators, artists) # Настройка связи "многие ко многим"
+              |> Ecto.Changeset.put_assoc(:collaborators, artists)
               |> Repo.update!()
             end
           end)
@@ -105,7 +90,6 @@ defmodule MusicPlatformApi.Music do
           album
 
         {:error, changeset} ->
-          # Сам откат
           Repo.rollback(changeset)
       end
     end)
@@ -136,13 +120,12 @@ defmodule MusicPlatformApi.Music do
     |> Repo.insert()
   end
 
-  # Модерация контента только на артиста, альбом и трек
+  # Модерация контента
   def moderate_item(schema, id, status, comment) when schema in [Artist, Album, Track] do
     item_id = if is_binary(id), do: String.to_integer(id), else: id
     item = Repo.get!(schema, item_id)
     changeset = schema.moderation_changeset(item, %{status: status, moderation_comment: comment})
 
-    # Транзакция на случай падения
     Repo.transaction(fn ->
       case Repo.update(changeset) do
         {:ok, updated_item} ->
@@ -151,7 +134,6 @@ defmodule MusicPlatformApi.Music do
             |> Repo.update_all(set: [status: status, moderation_comment: comment])
           end
 
-          # Запись в таблице уведомлений у юзера
           notify_creator(schema, updated_item, status, comment)
           updated_item
 
@@ -161,7 +143,7 @@ defmodule MusicPlatformApi.Music do
     end)
   end
 
-  # Возрат уведомления по результату модерации
+  # Отправка уведомления по результату модерации
   def notify_creator(schema, item, status, comment) do
     item_name =
       case schema do
@@ -177,14 +159,12 @@ defmodule MusicPlatformApi.Music do
         {"Материал отклонен", "error", "Ваш #{item_name} был отклонен модератором. Причина: #{comment || "Не указана"}"}
       end
 
-    # Переделка в тип сущности
     entity_type_str =
       schema
       |> Module.split()
       |> List.last()
       |> String.downcase()
 
-    # Заброс в БД
     %Notification{}
     |> Notification.changeset(%{
       user_id: item.creator_id,
@@ -205,7 +185,6 @@ defmodule MusicPlatformApi.Music do
     else
       track_preloads = [:artist, :collaborators, original_track: [:artist, :album]]
 
-      # Показ одобренных альбомов
       albums =
         Repo.all(
           from a in Album,
@@ -220,7 +199,6 @@ defmodule MusicPlatformApi.Music do
             ]
         )
 
-      # Показ одобренных синглов
       singles =
         Repo.all(
           from t in Track,
@@ -231,7 +209,6 @@ defmodule MusicPlatformApi.Music do
             preload: ^track_preloads
         )
 
-      # Показ участия в релизах у других
       collab_tracks =
         Repo.all(
           from t in Track,
@@ -245,7 +222,7 @@ defmodule MusicPlatformApi.Music do
     end
   end
 
-  # Вспомогательное
+  # Вспомогательные функции преобразования типов
   def parse_int(nil), do: 0
   def parse_int(val) when is_integer(val), do: val
   def parse_int(val) when is_binary(val) do
@@ -300,7 +277,7 @@ defmodule MusicPlatformApi.Music do
     end
   end
 
-  # Переключение лайка (добавить и удалить) с обновлением счетчика likes_count
+  # Переключение статуса избранного для трека
   def toggle_favorite(user_id, track_id) do
     case Repo.get_by(FavoriteTrack, user_id: user_id, track_id: track_id) do
       nil ->
@@ -340,9 +317,174 @@ defmodule MusicPlatformApi.Music do
     Repo.all(query)
   end
 
-  # Список ID избранных треков для подсветки активных сердечек на клиенте
+  # Список идентификаторов избранных треков пользователя
   def list_user_favorite_ids(user_id) do
     from(f in FavoriteTrack, where: f.user_id == ^user_id, select: f.track_id)
     |> Repo.all()
+  end
+
+  # Предзагрузка треков и владельца для плейлиста
+  defp preload_playlist_associations(playlist_or_playlists) do
+    tracks_query =
+      from t in Track,
+        join: pt in PlaylistTrack,
+        on: pt.track_id == t.id,
+        where: t.status == "approved",
+        order_by: [asc: pt.position, asc: pt.inserted_at],
+        preload: [:artist, :album, :collaborators, original_track: [:artist, :album]]
+
+    Repo.preload(playlist_or_playlists, [:user, tracks: tracks_query])
+  end
+
+  # Получение всех плейлистов текущего пользователя для страницы плейлистов
+  def list_my_playlists(user_id) do
+    from(p in Playlist,
+      where: p.user_id == ^user_id,
+      order_by: [desc: p.inserted_at]
+    )
+    |> Repo.all()
+    |> preload_playlist_associations()
+  end
+
+  # Получение публичных плейлистов пользователя для отображения в профиле
+  def list_user_public_playlists(user_id) do
+    from(p in Playlist,
+      where: p.user_id == ^user_id and p.is_public == true,
+      order_by: [desc: p.inserted_at]
+    )
+    |> Repo.all()
+    |> preload_playlist_associations()
+  end
+
+  # Получение плейлиста по идентификатору
+  def get_playlist(playlist_id) do
+    id = parse_nullable_id(playlist_id)
+
+    if is_nil(id) do
+      {:error, :not_found}
+    else
+      case Repo.get(Playlist, id) do
+        nil ->
+          {:error, :not_found}
+
+        playlist ->
+          {:ok, preload_playlist_associations(playlist)}
+      end
+    end
+  end
+
+  # Создание нового плейлиста
+  def create_playlist(attrs, user_id) do
+    is_public =
+      if Map.has_key?(attrs, "is_public") do
+        parse_boolean(Map.get(attrs, "is_public"))
+      else
+        true
+      end
+
+    clean_attrs =
+      attrs
+      |> Map.put("user_id", user_id)
+      |> Map.put("is_public", is_public)
+
+    case %Playlist{}
+         |> Playlist.changeset(clean_attrs)
+         |> Repo.insert() do
+      {:ok, playlist} -> {:ok, preload_playlist_associations(playlist)}
+      error -> error
+    end
+  end
+
+  # Обновление параметров плейлиста
+  def update_playlist(%Playlist{} = playlist, attrs) do
+    update_map = %{}
+
+    update_map =
+      if Map.has_key?(attrs, "title") and String.trim(to_string(attrs["title"])) != "" do
+        Map.put(update_map, :title, String.trim(to_string(attrs["title"])))
+      else
+        update_map
+      end
+
+    update_map =
+      if Map.has_key?(attrs, "is_public") do
+        Map.put(update_map, :is_public, parse_boolean(attrs["is_public"]))
+      else
+        update_map
+      end
+
+    update_map =
+      if Map.has_key?(attrs, "cover") and not is_nil(attrs["cover"]) do
+        Map.put(update_map, :cover, attrs["cover"])
+      else
+        update_map
+      end
+
+    case playlist
+         |> Playlist.changeset(update_map)
+         |> Repo.update() do
+      {:ok, updated} -> {:ok, preload_playlist_associations(updated)}
+      error -> error
+    end
+  end
+
+  # Удаление плейлиста и его обложки
+  def delete_playlist(%Playlist{} = playlist) do
+    case Repo.delete(playlist) do
+      {:ok, deleted} ->
+        delete_file(deleted.cover)
+        {:ok, deleted}
+
+      error ->
+        error
+    end
+  end
+
+  # Добавление или удаление трека в плейлисте
+  def toggle_track_in_playlist(playlist_id, track_id) do
+    p_id = parse_int(playlist_id)
+    t_id = parse_int(track_id)
+
+    case Repo.get_by(PlaylistTrack, playlist_id: p_id, track_id: t_id) do
+      nil ->
+        max_pos =
+          from(pt in PlaylistTrack,
+            where: pt.playlist_id == ^p_id,
+            select: max(pt.position)
+          )
+          |> Repo.one()
+
+        next_pos = (max_pos || 0) + 1
+
+        case %PlaylistTrack{}
+             |> PlaylistTrack.changeset(%{
+               playlist_id: p_id,
+               track_id: t_id,
+               position: next_pos
+             })
+             |> Repo.insert() do
+          {:ok, _pt} -> {:ok, :added}
+          {:error, changeset} -> {:error, changeset}
+        end
+
+      existing ->
+        Repo.delete!(existing)
+        {:ok, :removed}
+    end
+  end
+
+  # Удаление трека из плейлиста
+  def remove_track_from_playlist(playlist_id, track_id) do
+    p_id = parse_int(playlist_id)
+    t_id = parse_int(track_id)
+
+    case Repo.get_by(PlaylistTrack, playlist_id: p_id, track_id: t_id) do
+      nil ->
+        {:error, :not_found}
+
+      existing ->
+        Repo.delete!(existing)
+        {:ok, :removed}
+    end
   end
 end

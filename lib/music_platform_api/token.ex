@@ -4,11 +4,15 @@ defmodule MusicPlatformApi.Token do
   # Генерация токена
   def generate_token(claims) do
     try do
-      claims_with_defaults = Map.merge(%{
-        "iat" => System.system_time(:second), # Когда появился
-        "exp" => System.system_time(:second) + 86400, # Срок действия
-        "user_id" => nil
-      }, claims)
+      claims_with_defaults =
+        Map.merge(
+          %{
+            "iat" => System.system_time(:second),
+            "exp" => System.system_time(:second) + 86400,
+            "user_id" => nil
+          },
+          claims
+        )
 
       # Исключение пустых ключей
       clean_claims =
@@ -16,12 +20,10 @@ defmodule MusicPlatformApi.Token do
         |> Enum.filter(fn {_key, value} -> not is_nil(value) end)
         |> Map.new()
 
-      # Проверка на айдишник
+      # Проверка наличия идентификатора пользователя
       if not Map.has_key?(clean_claims, "user_id") do
         raise "user_id is missing in claims"
       end
-
-      IO.inspect(clean_claims, label: "Clean claims for JWT")
 
       header = %{"alg" => "HS256", "typ" => "JWT"}
       header_encoded = header |> Jason.encode!() |> base64url_encode()
@@ -34,13 +36,12 @@ defmodule MusicPlatformApi.Token do
       {:ok, token, clean_claims}
     rescue
       error ->
-        IO.inspect(error, label: "Token generation error")
         {:error, "Не удалось сгенерировать токен: #{inspect(error)}"}
     end
   end
 
-  # Проверка валидности и срока токена
-  def verify_token(token) do
+  # Проверка валидности и срока действия токена
+  def verify_token(token) when is_binary(token) do
     try do
       case String.split(token, ".") do
         [header_encoded, claims_encoded, signature_encoded] ->
@@ -48,10 +49,10 @@ defmodule MusicPlatformApi.Token do
           expected_signature = :crypto.mac(:hmac, :sha256, @secret, signature_data) |> base64url_encode()
 
           # Проверка подписи
-          if signature_encoded == expected_signature do
+          if Plug.Crypto.secure_compare(signature_encoded, expected_signature) do
             claims = claims_encoded |> base64url_decode() |> Jason.decode!()
 
-            # Проверка жизни токена
+            # Проверка времени жизни токена
             case claims do
               %{"exp" => exp} when is_integer(exp) ->
                 if exp < System.system_time(:second) do
@@ -59,35 +60,30 @@ defmodule MusicPlatformApi.Token do
                 else
                   {:ok, claims}
                 end
+
               _ ->
                 {:ok, claims}
             end
           else
             {:error, "Неверная подпись токена"}
           end
+
         _ ->
           {:error, "Неверный формат токена"}
       end
     rescue
       error ->
-        IO.inspect(error, label: "Token verification error")
         {:error, "Недействительный токен: #{inspect(error)}"}
     end
   end
 
+  def verify_token(_), do: {:error, "Неверный формат токена"}
+
   defp base64url_encode(data) do
-    data
-    |> Base.encode64()
-    |> String.replace("+", "-")
-    |> String.replace("/", "_")
-    |> String.replace("=", "")
+    Base.url_encode64(data, padding: false)
   end
 
   defp base64url_decode(data) do
-    data
-    |> String.replace("-", "+")
-    |> String.replace("_", "/")
-    |> String.pad_trailing(4 - rem(String.length(data), 4), "=")
-    |> Base.decode64!()
+    Base.url_decode64!(data, padding: false)
   end
 end

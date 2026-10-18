@@ -11,7 +11,11 @@ config :music_platform_api, MusicPlatformApi.Repo,
   pool_size: 10
 
 config :music_platform_api, MusicPlatformApiWeb.Endpoint,
-  http: [ip: {127, 0, 0, 1}, port: String.to_integer(System.get_env("PORT") || "4000")],
+  http: [
+    ip: {127, 0, 0, 1},
+    port: String.to_integer(System.get_env("PORT") || "4000"),
+    thousand_island_options: [silent_terminate_on_error: true]
+  ],
   check_origin: false,
   code_reloader: true,
   debug_errors: true,
