@@ -91,6 +91,7 @@ defmodule MusicPlatformApi.Auth do
         "login" => user.login,
         "email" => user.email,
         "nickname" => user.nickname || "",
+        "role" => user.role,
         "exp" => System.system_time(:second) + 86400 * 90
       }
 
@@ -204,7 +205,6 @@ defmodule MusicPlatformApi.Auth do
     end
   end
 
-
   def check_password(user, password) do
     User.valid_password?(user, password)
   end
@@ -264,5 +264,27 @@ defmodule MusicPlatformApi.Auth do
           {:error, _reason} = err -> err
         end
     end
+  end
+
+  # Получение списка пользователей для панели управления ролями
+  def list_users(search_query \\ "") do
+    base = from u in User, order_by: [asc: u.id]
+
+    query =
+      if search_query != "" and is_binary(search_query) do
+        term = "%#{String.trim(search_query)}%"
+        from u in base, where: ilike(u.login, ^term) or ilike(u.email, ^term) or ilike(u.nickname, ^term)
+      else
+        base
+      end
+
+    Repo.all(query)
+  end
+
+  # Смена роли пользователя
+  def change_user_role(%User{} = target_user, new_role) do
+    target_user
+    |> User.role_changeset(%{role: new_role})
+    |> Repo.update()
   end
 end

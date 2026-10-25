@@ -54,6 +54,10 @@ defmodule MusicPlatformApiWeb.Router do
     post "/moderation/decision", ModerationController, :make_decision
     post "/moderation/approve-with-edit", ModerationController, :approve_with_edit
 
+    # Управление ролями (только для owner)
+    get "/admin/users", AdminController, :list_users
+    put "/admin/users/:id/role", AdminController, :update_role
+
     # Избранное
     get "/favorites", MusicController, :list_favorites
     get "/favorites/ids", MusicController, :favorite_ids

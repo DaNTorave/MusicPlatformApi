@@ -6,25 +6,14 @@ defmodule MusicPlatformApiWeb.ModerationController do
 
   # Список на модерацию
   def pending_list(conn, _params) do
-    # Проверка авторизации и прав доступа
     with ["Bearer " <> token] <- get_req_header(conn, "authorization"),
-         user when not is_nil(user) and user.role in ["admin", "moderator"] <- Auth.get_user_from_token(token) do
-
-      # Форматирование входных данных, чтоб без лишней информации
+         user when not is_nil(user) and user.role in ["owner", "admin", "moderator"] <- Auth.get_user_from_token(token) do
       format_creator = fn creator ->
-        if creator do
-          %{id: creator.id, login: creator.login, nickname: creator.nickname}
-        else
-          nil
-        end
+        if creator, do: %{id: creator.id, login: creator.login, nickname: creator.nickname}, else: nil
       end
 
       format_artist = fn artist ->
-        if artist do
-          %{id: artist.id, name: artist.name}
-        else
-          nil
-        end
+        if artist, do: %{id: artist.id, name: artist.name}, else: nil
       end
 
       format_original_track = fn orig ->
@@ -40,7 +29,6 @@ defmodule MusicPlatformApiWeb.ModerationController do
         end
       end
 
-      # Подгрузка артистов на модерации
       artists =
         Repo.all(from a in Artist, where: a.status == "pending", preload: [:creator])
         |> Enum.map(fn a ->
@@ -51,7 +39,6 @@ defmodule MusicPlatformApiWeb.ModerationController do
           |> Map.put(:creator_info, format_creator.(a.creator))
         end)
 
-      # Альбомы
       albums =
         Repo.all(
           from a in Album,
@@ -63,23 +50,24 @@ defmodule MusicPlatformApiWeb.ModerationController do
             ]
         )
         |> Enum.map(fn a ->
-          formatted_tracks = Enum.map(a.tracks || [], fn t ->
-            %{
-              id: t.id,
-              title: t.title,
-              audio_uuid: t.audio_uuid,
-              duration_seconds: t.duration_seconds,
-              is_single: t.is_single,
-              status: t.status,
-              is_cover: t.is_cover,
-              position: t.position,
-              release_year: t.release_year,
-              original_track_id: t.original_track_id,
-              original_track: format_original_track.(t.original_track),
-              collaborators: Enum.map(t.collaborators || [], &%{id: &1.id, name: &1.name}),
-              age_restriction: t.age_restriction
-            }
-          end)
+          formatted_tracks =
+            Enum.map(a.tracks || [], fn t ->
+              %{
+                id: t.id,
+                title: t.title,
+                audio_uuid: t.audio_uuid,
+                duration_seconds: t.duration_seconds,
+                is_single: t.is_single,
+                status: t.status,
+                is_cover: t.is_cover,
+                position: t.position,
+                release_year: t.release_year,
+                original_track_id: t.original_track_id,
+                original_track: format_original_track.(t.original_track),
+                collaborators: Enum.map(t.collaborators || [], &%{id: &1.id, name: &1.name}),
+                age_restriction: t.age_restriction
+              }
+            end)
 
           a
           |> Map.from_struct()
@@ -90,7 +78,6 @@ defmodule MusicPlatformApiWeb.ModerationController do
           |> Map.put(:artist_info, format_artist.(a.artist))
         end)
 
-      # Синглы
       tracks =
         Repo.all(
           from t in Track,
@@ -109,20 +96,15 @@ defmodule MusicPlatformApiWeb.ModerationController do
           |> Map.put(:age_restriction, t.age_restriction)
         end)
 
-      # Объединение в один список
       json(conn, %{items: artists ++ albums ++ tracks})
     else
       _ -> conn |> put_status(:forbidden) |> json(%{error: "Доступ запрещен"})
     end
   end
 
-  # Принятие решения
   def make_decision(conn, %{"schema" => schema_str, "id" => id, "status" => status} = params) do
-    # Проверка авторизации и прав доступа
     with ["Bearer " <> token] <- get_req_header(conn, "authorization"),
-         user when not is_nil(user) and user.role in ["admin", "moderator"] <- Auth.get_user_from_token(token) do
-
-      # Определение типа
+         user when not is_nil(user) and user.role in ["owner", "admin", "moderator"] <- Auth.get_user_from_token(token) do
       schema =
         case String.downcase(to_string(schema_str)) do
           "artist" -> Artist
@@ -135,7 +117,6 @@ defmodule MusicPlatformApiWeb.ModerationController do
       if schema do
         comment = Map.get(params, "comment", "")
 
-        # Обновление статуса в контексте
         case Music.moderate_item(schema, id, status, comment) do
           {:ok, item} ->
             json(conn, %{success: true, item: item})
@@ -155,23 +136,21 @@ defmodule MusicPlatformApiWeb.ModerationController do
     end
   end
 
-  # Если пришёл шлак
   def make_decision(conn, _params) do
     conn |> put_status(:bad_request) |> json(%{error: "Отсутствуют обязательные параметры (schema, id, status)"})
   end
 
-  # Одобрение с внесёнными изменениями в параметры
   def approve_with_edit(conn, %{"schema" => schema_str} = params) do
     with ["Bearer " <> token] <- get_req_header(conn, "authorization"),
-         user when not is_nil(user) and user.role in ["admin", "moderator"] <- Auth.get_user_from_token(token) do
-
-      schema = case String.downcase(to_string(schema_str)) do
-        "artist" -> Artist
-        "album" -> Album
-        "track" -> Track
-        "single" -> Track
-        _ -> nil
-      end
+         user when not is_nil(user) and user.role in ["owner", "admin", "moderator"] <- Auth.get_user_from_token(token) do
+      schema =
+        case String.downcase(to_string(schema_str)) do
+          "artist" -> Artist
+          "album" -> Album
+          "track" -> Track
+          "single" -> Track
+          _ -> nil
+        end
 
       if is_nil(schema) do
         return_error(conn, :bad_request, "Неизвестный тип сущности: #{schema_str}")
@@ -179,21 +158,15 @@ defmodule MusicPlatformApiWeb.ModerationController do
         item_id = if is_binary(params["id"]), do: String.to_integer(params["id"]), else: params["id"]
         item = Repo.get!(schema, item_id)
 
-        # Базовые атрибуты при одобрении
         update_attrs = %{status: "approved", moderation_comment: "Одобрено модератором"}
 
-
-        update_attrs = if Map.has_key?(params, "title") and params["title"] != "" do
-          if schema == Artist do
-            Map.put(update_attrs, :name, params["title"])
+        update_attrs =
+          if Map.has_key?(params, "title") and params["title"] != "" do
+            if schema == Artist, do: Map.put(update_attrs, :name, params["title"]), else: Map.put(update_attrs, :title, params["title"])
           else
-            Map.put(update_attrs, :title, params["title"])
+            update_attrs
           end
-        else
-          update_attrs
-        end
 
-        # Год релиза
         update_attrs =
           if Map.has_key?(params, "release_year") do
             yr = Music.parse_int(params["release_year"])
@@ -202,7 +175,6 @@ defmodule MusicPlatformApiWeb.ModerationController do
             update_attrs
           end
 
-        # Редакт аватарки артиста или обложки трека
         update_attrs =
           case Map.get(params, "cover") do
             %Plug.Upload{} = upload ->
@@ -212,17 +184,12 @@ defmodule MusicPlatformApiWeb.ModerationController do
               old_cover = if schema == Artist, do: item.avatar, else: item.cover
               Music.delete_file(old_cover)
 
-              if schema == Artist do
-                Map.put(update_attrs, :avatar, url)
-              else
-                Map.put(update_attrs, :cover, url)
-              end
+              if schema == Artist, do: Map.put(update_attrs, :avatar, url), else: Map.put(update_attrs, :cover, url)
 
             _ ->
               update_attrs
           end
 
-        # Редакт медиафайла для одиночного трека
         update_attrs =
           case {schema, Map.get(params, "audio")} do
             {Track, %Plug.Upload{} = upload} ->
@@ -239,7 +206,6 @@ defmodule MusicPlatformApiWeb.ModerationController do
               update_attrs
           end
 
-        # Особые параметры трека
         update_attrs =
           if schema == Track do
             is_cover = Music.parse_boolean(Map.get(params, "is_cover"))
@@ -256,19 +222,16 @@ defmodule MusicPlatformApiWeb.ModerationController do
             update_attrs
           end
 
-        # Синхронизация и обновление
         Repo.transaction(fn ->
           if schema == Album do
             tracks_params = Map.get(params, "tracks", %{})
 
-            # Сборка айдишников для оставленных треков
             submitted_track_ids =
               tracks_params
               |> Enum.map(fn {_k, v} -> v["id"] end)
               |> Enum.reject(&is_nil/1)
               |> Enum.map(fn id -> if is_binary(id), do: String.to_integer(id), else: id end)
 
-            # Удаление убранных из альбома треков
             tracks_to_delete =
               from(t in Track, where: t.album_id == ^item.id and t.id not in ^submitted_track_ids)
               |> Repo.all()
@@ -279,17 +242,18 @@ defmodule MusicPlatformApiWeb.ModerationController do
               Repo.delete!(trk)
             end)
 
-            # Обновление или создание треков в альбоме
             Enum.each(tracks_params, fn {idx, t_param} ->
               track_id = t_param["id"]
               t_is_cover = Music.parse_boolean(Map.get(t_param, "is_cover"))
               t_orig_id = if t_is_cover, do: Music.parse_nullable_id(Map.get(t_param, "original_track_id")), else: nil
               t_age = Music.parse_boolean(Map.get(t_param, "age_restriction"))
 
-              fallback_pos = case Integer.parse(to_string(idx)) do
-                {num, _} -> num + 1
-                _ -> 1
-              end
+              fallback_pos =
+                case Integer.parse(to_string(idx)) do
+                  {num, _} -> num + 1
+                  _ -> 1
+                end
+
               pos_in_param = Music.parse_int(t_param["position"])
               t_pos = if pos_in_param > 0, do: pos_in_param, else: fallback_pos
 
@@ -309,6 +273,7 @@ defmodule MusicPlatformApiWeb.ModerationController do
                     release_year: t_year,
                     age_restriction: t_age
                   }
+
                   t_attrs = if t_param["title"], do: Map.put(t_attrs, :title, t_param["title"]), else: t_attrs
 
                   t_attrs =
@@ -359,7 +324,6 @@ defmodule MusicPlatformApiWeb.ModerationController do
               end
             end)
 
-            # Подтверждение треков в альбоме
             from(t in Track, where: t.album_id == ^item.id)
             |> Repo.update_all(set: [status: "approved", moderation_comment: "Одобрено модератором"])
           end
@@ -387,6 +351,7 @@ defmodule MusicPlatformApiWeb.ModerationController do
 
             if schema == Album do
               album_tracks = Repo.all(from t in Track, where: t.album_id == ^item.id, preload: [:collaborators])
+
               Enum.each(album_tracks, fn trk ->
                 trk
                 |> Ecto.Changeset.change()
@@ -396,7 +361,6 @@ defmodule MusicPlatformApiWeb.ModerationController do
             end
           end
 
-          # Применение изменений
           changeset =
             item
             |> schema.moderation_changeset(%{status: "approved", moderation_comment: "Одобрено модератором"})
