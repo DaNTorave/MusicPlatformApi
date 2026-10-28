@@ -74,7 +74,6 @@ defmodule MusicPlatformApiWeb.StreamController do
       |> Repo.preload([:artist, :album])
 
     if File.exists?(track.file_path) do
-      # Подготовка метаданных
       artist_name = if track.artist, do: track.artist.name, else: "Неизвестный исполнитель"
       track_title = track.title || "Без названия"
       album_title = if track.album, do: track.album.title, else: ""
@@ -82,12 +81,11 @@ defmodule MusicPlatformApiWeb.StreamController do
       pos_str = to_string(track.position || 1)
       year_str = if track.release_year, do: to_string(track.release_year), else: ""
 
-      # Поиск и чтение файла обложки с диска
-      cover_bytes = load_track_cover(track)
+      # Загрузка бинарника обложки и MIME-типа (с гарантированным фолбэком)
+      {cover_bytes, cover_mime} = load_track_cover(track)
 
       original_bytes = File.read!(track.file_path)
 
-      # Вставка метаданных и обложки в MP3
       tagged_audio =
         ID3.inject_tags(original_bytes, %{
           title: track_title,
@@ -95,11 +93,12 @@ defmodule MusicPlatformApiWeb.StreamController do
           album: album_title,
           track: pos_str,
           year: year_str,
-          cover: cover_bytes
+          cover: cover_bytes,
+          cover_mime: cover_mime
         })
 
-      # Форматирование имени файла
-      clean_name = String.replace("#{artist_name} — #{track_title}", ~r/[\\\/:\*\?"<>\|]/u, "")
+      # Имя файла без недопустимых символов
+      clean_name = String.replace("#{artist_name} – #{track_title}", ~r/[\\\/:\*\?"<>\|]/u, "")
       encoded_filename = URI.encode("#{clean_name}.mp3")
 
       conn
@@ -115,9 +114,9 @@ defmodule MusicPlatformApiWeb.StreamController do
     end
   end
 
-  # Загрузка бинарных данных обложки (приоритет: трек -> альбом -> артист)
+  # Получение данных обложки: сначала трек -> альбом -> артист -> дефолтная обложка
   defp load_track_cover(track) do
-    cover_url =
+    cover_candidate =
       cond do
         is_binary(track.cover) and String.trim(track.cover) != "" ->
           track.cover
@@ -132,19 +131,53 @@ defmodule MusicPlatformApiWeb.StreamController do
           nil
       end
 
-    case resolve_disk_path(cover_url) do
-      {:ok, path} ->
-        case File.read(path) do
-          {:ok, binary} -> binary
-          _ -> nil
-        end
+    case read_cover_file(cover_candidate) do
+      {:ok, bytes, mime} ->
+        {bytes, mime}
 
-      _ ->
-        nil
+      :error ->
+        # Попытка прочитать дефолтную обложку проекта
+        case read_default_cover() do
+          {:ok, bytes, mime} -> {bytes, mime}
+          :error -> {nil, nil}
+        end
     end
   end
 
-  # Поиск физического файла на диске по относительному или статическому URL
+  defp read_cover_file(nil), do: :error
+  defp read_cover_file(""), do: :error
+  defp read_cover_file(path_or_url) do
+    case resolve_disk_path(path_or_url) do
+      {:ok, full_path} ->
+        case File.read(full_path) do
+          {:ok, binary} ->
+            mime = detect_mime(full_path, binary)
+            {:ok, binary, mime}
+          _ ->
+            :error
+        end
+      _ ->
+        :error
+    end
+  end
+
+  defp read_default_cover do
+    default_candidates = [
+      Path.expand("priv/static/uploads/covers/default_cover.jpg"),
+      Path.expand("priv/static/default_cover.jpg"),
+      # Берем любую существующую обложку из загрузок как резерв
+      Path.wildcard("priv/static/uploads/covers/*.jpg") |> List.first()
+    ]
+    |> Enum.reject(&is_nil/1)
+
+    case Enum.find(default_candidates, &File.exists?/1) do
+      nil -> :error
+      path ->
+        {:ok, binary} = File.read(path)
+        {:ok, binary, "image/jpeg"}
+    end
+  end
+
   defp resolve_disk_path(nil), do: :error
   defp resolve_disk_path(""), do: :error
   defp resolve_disk_path(url_or_path) do
@@ -152,6 +185,7 @@ defmodule MusicPlatformApiWeb.StreamController do
 
     candidates = [
       url_or_path,
+      Path.expand(url_or_path),
       clean_path,
       Path.join("priv/static", clean_path),
       Path.expand(Path.join("priv/static", clean_path)),
@@ -166,6 +200,17 @@ defmodule MusicPlatformApiWeb.StreamController do
     case Enum.find(candidates, &File.exists?/1) do
       nil -> :error
       path -> {:ok, path}
+    end
+  end
+
+  defp detect_mime(path, binary) do
+    ext = Path.extname(path) |> String.downcase()
+    cond do
+      ext in [".jpg", ".jpeg"] -> "image/jpeg"
+      ext == ".png" -> "image/png"
+      match?(<<0xFF, 0xD8, _::binary>>, binary) -> "image/jpeg"
+      match?(<<0x89, 0x50, 0x4E, 0x47, _::binary>>, binary) -> "image/png"
+      true -> "image/jpeg"
     end
   end
 end
